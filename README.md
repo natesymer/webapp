@@ -13,7 +13,7 @@ Basic example:
         putStr "Counted: "
         print st
 
-    main = startHTTP app 3000
+    main = webappMain app "My Web App" "This is a demo web app"
 
     app :: (ScottyError e) => ScottyT e (WebAppM Integer) ()
     app = do
