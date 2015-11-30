@@ -1,4 +1,4 @@
-module System.WebApp.Daemon
+module Web.App.Daemon
 (
   daemonize,
   daemonRunning,
@@ -6,7 +6,7 @@ module System.WebApp.Daemon
 )
 where
   
-import System.WebApp.IO
+import Web.App.IO
   
 import Control.Exception
 import Control.Monad (when,void)

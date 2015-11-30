@@ -19,42 +19,40 @@ Extra-source-files:
     changelog.md
 
 Library
-  Exposed-modules:     Web.App.Cookie
-                       Web.App.Daemon
-                       Web.App.FileCache
-                       Web.App.HTTP
-                       Web.App.IO
-                       Web.App.Monad
-  other-modules:       Web.App.Gzip
-                       Web.App.Privileges
-  default-language:    Haskell2010
-  build-depends:       base,
-                       containers,
-                       unordered-containers,
-                       http-types,
-                       warp,
-                       warp-tls,
-                       wai,
-                       wai-extra,
-                       process,
-                       scotty,
-                       text,
-                       bytestring,
-                       transformers,
-                       time,
-                       blaze-builder,
-                       attoparsec,
-                       optparse-applicative,
-                       unix,
-                       stm,
-                       directory,
-                       mtl,
-                       tls,
-                       fsnotify,
-                       hashtables,
-                       directory,
-                       filepath,
-                       zlib
+  Exposed-modules:   Web.App
+                     Web.App.Cookie
+                     Web.App.Daemon
+                     Web.App.FileCache
+                     Web.App.HTTP
+                     Web.App.IO
+                     Web.App.Monad
+  other-modules:     Web.App.Gzip
+                     Web.App.Privileges
+  default-language:  Haskell2010
+  build-depends:     base,
+                     mtl,
+                     stm,
+                     scotty,
+                     wai,
+                     wai-extra,
+                     warp,
+                     warp-tls,
+                     http-types,
+                     bytestring,
+                     data-default,
+                     time,
+                     unordered-containers,
+                     attoparsec,
+                     unix,
+                     fsnotify,
+                     directory,
+                     filepath,
+                     hashtables,
+                     base16-bytestring,
+                     blaze-builder,
+                     zlib,
+                     cryptohash
+                       
   GHC-options: -Wall -fno-warn-orphans
 
 source-repository head

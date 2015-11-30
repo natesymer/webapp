@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving #-}
 
-module System.WebApp.Monad
+module Web.App.Monad
 (
   WebApp(..),
   WebAppM(..),
@@ -12,7 +12,7 @@ module System.WebApp.Monad
   putState
 ) where
 
-import System.WebApp.FileCache
+import Web.App.FileCache
 
 import Control.Monad.Reader
 import Control.Concurrent.STM
@@ -38,9 +38,12 @@ getWebApp = liftWebAppM $ ask >>= liftIO . readTVarIO
 getCache :: (MonadTrans t, WebAppState s) => t (WebAppM s) FileCache
 getCache = liftWebAppM $ ask >>= liftIO . fmap webAppCache . readTVarIO
 
--- TODO: double check
 getState :: (MonadTrans t, WebAppState s) => t (WebAppM s) s
 getState = liftWebAppM $ ask >>= liftIO . fmap webAppState . readTVarIO
 
 putState :: (MonadTrans t, WebAppState s) => s -> t (WebAppM s) ()
-putState st = liftWebAppM $ ask >>= liftIO . atomically . flip writeTvarIO st
+putState st = liftWebAppM $ do
+  tv <- ask
+  liftIO $ atomically $ do
+    (WebApp cache _) <- readTVar tv
+    writeTVar tv (WebApp cache st)

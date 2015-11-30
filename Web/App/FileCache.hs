@@ -1,6 +1,6 @@
 {-# LANGUAGE TupleSections #-}
 
-module System.WebApp.FileCache
+module Web.App.FileCache
 (
   FileCache(..),
   Entry,

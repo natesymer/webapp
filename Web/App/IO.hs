@@ -1,4 +1,4 @@
-module System.WebApp.IO
+module Web.App.IO
 (
   redirectStdout,
   redirectStderr,

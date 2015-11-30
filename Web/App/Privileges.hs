@@ -1,4 +1,4 @@
-module System.WebApp.Privileges
+module Web.App.Privileges
 (
   
   isPrivileged,

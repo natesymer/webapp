@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings, TupleSections #-}
 
-module System.WebApp.Cookie 
+module Web.App.Cookie 
 (
   Cookie(..),
   parseCookie

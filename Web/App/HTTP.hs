@@ -1,16 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
-module System.WebApp.HTTP
+module Web.App.HTTP
 (
   startHTTPS,
   startHTTP
 )
 where
 
-import System.WebApp.Monad
-import System.WebApp.IO
-import System.WebApp.FileCache
-import System.WebApp.Gzip
-import System.WebApp.Privileges
+import Web.App.Monad
+import Web.App.IO
+import Web.App.FileCache
+import Web.App.Gzip
+import Web.App.Privileges
 
 import Data.Maybe
 import Control.Monad
