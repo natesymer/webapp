@@ -1,5 +1,6 @@
 module Web.App
 (
+  module Web.App.Assets,
   module Web.App.Cookie,
   module Web.App.Daemon,
   module Web.App.FileCache,
@@ -9,6 +10,7 @@ module Web.App
 )
 where
   
+import Web.App.Assets
 import Web.App.Cookie
 import Web.App.Daemon
 import Web.App.FileCache

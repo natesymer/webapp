@@ -20,6 +20,7 @@ Extra-source-files:
 
 Library
   Exposed-modules:   Web.App
+                     Web.App.Assets
                      Web.App.Cookie
                      Web.App.Daemon
                      Web.App.FileCache
@@ -32,6 +33,7 @@ Library
   build-depends:     base,
                      mtl,
                      stm,
+                     transformers,
                      scotty,
                      wai,
                      wai-extra,
@@ -45,13 +47,18 @@ Library
                      attoparsec,
                      unix,
                      fsnotify,
-                     directory,
                      filepath,
                      hashtables,
                      base16-bytestring,
                      blaze-builder,
                      zlib,
-                     cryptohash
+                     cryptohash,
+                     text,
+                     hjsmin,
+                     css-text,
+                     mime-types,
+                     filepath,
+                     directory
                        
   GHC-options: -Wall -fno-warn-orphans
 

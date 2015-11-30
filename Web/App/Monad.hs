@@ -9,7 +9,8 @@ module Web.App.Monad
   getWebApp,
   getCache,
   getState,
-  putState
+  putState,
+  modifyState
 ) where
 
 import Web.App.FileCache
@@ -47,3 +48,10 @@ putState st = liftWebAppM $ do
   liftIO $ atomically $ do
     (WebApp cache _) <- readTVar tv
     writeTVar tv (WebApp cache st)
+
+modifyState :: (MonadTrans t, WebAppState s) => (s -> s) -> t (WebAppM s) ()
+modifyState f = liftWebAppM $ do
+  tv <- ask
+  liftIO $ atomically $ do
+    (WebApp cache st) <- readTVar tv
+    writeTVar tv (WebApp cache (f st))

@@ -6,24 +6,25 @@ Basic example:
     
     import Web.App
     import Web.Scotty.Trans
-
-    data State = State {
-      stateCounter :: Integer
-    }
     
-    instance WebAppState State where
-      initState = return $ State 0
+    instance WebAppState Integer where
+      initState = return 0
       destroyState st = do
         putStr "Counted: "
-        print $ stateCounter st
+        print st
 
     main = startHTTP app 3000
 
-    app :: (ScottyError e) => ScottyT e (WebAppM State) ()
+    app :: (ScottyError e) => ScottyT e (WebAppM Integer) ()
     app = do
-      get "/" $ do
+      get "/add" $ do
+      	modifyState (+1)
+        
+      get "/subtract" $ do
         (State count) <- getState
-        putState (State count+1)
+        putState (State count-1)
+        
+      get "/assets/:file" $ param "file" >>= loadAsset
     
     
 There is also a module called `FileCache` which is available for loading cached files. It loads files into memory, MD5 sums them, compresses them, and then stores them in the cache.
