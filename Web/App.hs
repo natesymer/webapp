@@ -11,7 +11,7 @@ module Web.App
   module Web.App.Monad
 )
 where
-  
+
 import Web.App.Assets
 import Web.App.Cookie
 import Web.App.Daemon
