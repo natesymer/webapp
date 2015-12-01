@@ -1,4 +1,14 @@
 {-# LANGUAGE OverloadedStrings, ScopedTypeVariables #-}
+{-|
+Module      : Web.App.Gzip
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : Cross-Platform
+
+WAI middleware to GZIP HTTP responses.
+-}
 
 module Web.App.Gzip
 (
@@ -15,7 +25,9 @@ import qualified Data.ByteString.Char8 as B (ByteString,isInfixOf,break,drop,dro
 import Blaze.ByteString.Builder (toLazyByteString)
 import Blaze.ByteString.Builder.ByteString (fromLazyByteString)
 
-gzip :: Integer -> Middleware
+-- | Creates a 'Middleware' that GZIPs HTTP responses
+gzip :: Integer -- ^ Minimum response length that's GZIP'd
+     -> Middleware
 gzip minLen app env sendResponse = app env f
   where
     f res@ResponseRaw{} = sendResponse res

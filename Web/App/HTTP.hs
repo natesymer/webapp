@@ -1,12 +1,27 @@
 {-# LANGUAGE OverloadedStrings #-}
+
+{-|
+Module      : Web.App.HTTP
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
+
+Start an HTTP server.
+-}
+
 module Web.App.HTTP
 (
-  startHTTPS,
-  startHTTP
+  -- * Insecure HTTP
+  startHTTP,
+  -- * Secure HTTPS
+  startHTTPS
 )
 where
 
 import Web.App.Monad
+import Web.App.Monad.Internal
 import Web.App.IO
 import Web.App.FileCache
 import Web.App.Gzip
@@ -29,18 +44,21 @@ import Network.Wai.Middleware.AddHeaders
 import System.Exit
 import System.Posix
 
--- app -> your Scotty app
--- port -> port to run the HTTPS server on
-startHTTP :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -> Int -> IO ()
+-- |Start an insecure HTTP server.
+startHTTP :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -- ^ Scotty app to serve
+                                            -> Int -- ^ Port to which to bind
+                                            -> IO ()
 startHTTP app port = do
   (wai,wai2,webapp) <- mkApplication app False
   runHTTP2Settings (mkWarpSettings port webapp) wai2 wai
 
--- app -> your Scotty app
--- cert -> SSL certificate file path
--- key -> SSL private key file path
--- port -> port to run the HTTPS server on
-startHTTPS :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -> Int -> FilePath -> FilePath -> IO ()
+-- |Start a secure HTTPS server. Please note that most HTTP/2-compatible browswers
+-- require HTTPS in order to upgrade to HTTP/2.
+startHTTPS :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -- ^ Scotty app to serve
+                                             -> Int -- ^ Port to which to bind
+                                             -> FilePath -- ^ 'FilePath' to an SSL certificate
+                                             -> FilePath -- ^ 'FilePath' to an SSL private key
+                                             -> IO ()
 startHTTPS app port cert key = do
   whenPrivileged startRedirectProcess
   (wai,wai2,webapp) <- mkApplication app True

@@ -1,8 +1,21 @@
 {-# LANGUAGE OverloadedStrings, TupleSections #-}
 
+{-|
+Module      : Web.App.Cookie
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : Cross-Platform
+
+Manipulate HTTP cookies
+-}
+
 module Web.App.Cookie 
 (
+  -- * Data Structures
   Cookie(..),
+  -- * Cookie Parsing
   parseCookie
 )
 where
@@ -17,6 +30,7 @@ import qualified Data.HashMap.Strict as H
 import qualified Data.ByteString.Char8 as B
 import Data.Attoparsec.ByteString.Char8 as A
 
+-- ^ Data structure representing an HTTP cookie
 data Cookie = Cookie {
   cookiePairs :: HashMap String String,
   cookiePath :: Maybe String,
@@ -29,15 +43,13 @@ data Cookie = Cookie {
 instance Default Cookie where
   def = Cookie H.empty Nothing Nothing Nothing False False
 
--- RFC 1123 date parser
-parseCookieDate :: String -> Maybe UTCTime
-parseCookieDate = parseTimeM True defaultTimeLocale "%a, %d %b %Y %H:%M:%S GMT"
-
--- @flip feed ""@ is required because @pairs@ can
--- take an indefinite amount of input
-parseCookie :: B.ByteString -> Maybe Cookie
-parseCookie = fmap (lx def) . maybeResult . flip feed "" . parse pairs
+-- |Parse a 'Cookie' from a @Cookie@ header
+parseCookie :: B.ByteString -- ^ value of a @Cookie@ header
+            -> Maybe Cookie
+parseCookie = fmap (lx def) . maybeResult . flip feed "" . parse pairs -- @flip feed ""@ is required because @pairs@ can take an indefinite amount of input
   where
+    -- RFC 1123 date parser
+    parseCookieDate = parseTimeM True defaultTimeLocale "%a, %d %b %Y %H:%M:%S GMT"
     -- lexer
     lx c [] = c
     lx c (("secure",_):xs) = lx (c { cookieSecure = True }) xs

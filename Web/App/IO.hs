@@ -1,8 +1,22 @@
+{-|
+Module      : Web.App.IO
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
+
+Redirect standard input, output, and error. These functions will disable buffering
+after they swap file handles because buffering causes funny behavior with respect
+to writing to files. (buffering works fine with terminals/consoles).
+-}
+
 module Web.App.IO
 (
+  -- * IO Redirection
+  redirectStdin,
   redirectStdout,
-  redirectStderr,
-  redirectStdin
+  redirectStderr
 )
 where
 
@@ -11,30 +25,29 @@ import Control.Monad (when,void)
 import System.IO
 import System.Posix
 
--- IMPORTANT:
---
--- redirectStd* will disable buffering after
--- it swaps file handles because buffering
--- causes funny behavior with writing to files
--- (buffering works fine with terminals/consoles)
+-- | Redirect standard input.
+redirectStdin :: Maybe FilePath -- ^ File to which standard input is redirected
+              -> IO ()
+redirectStdin Nothing = return ()
+redirectStdin (Just path) = do
+  swapFd stdInput path
+  hSetBuffering stdin NoBuffering
 
-redirectStdout :: Maybe FilePath -> IO ()
+-- | Redirect standard output.
+redirectStdout :: Maybe FilePath -- ^ File to which standard output is redirected
+               -> IO ()
 redirectStdout Nothing = return ()
 redirectStdout (Just path) = do
   swapFd stdOutput path
   hSetBuffering stdout NoBuffering
 
-redirectStderr :: Maybe FilePath -> IO ()
+-- | Redirect standard error.
+redirectStderr :: Maybe FilePath -- ^ File to which standard error is redirected
+               -> IO ()
 redirectStderr Nothing = return ()
 redirectStderr (Just path) = do
   swapFd stdError path
   hSetBuffering stderr NoBuffering
-
-redirectStdin :: Maybe FilePath -> IO ()
-redirectStdin Nothing = return ()
-redirectStdin (Just path) = do
-  swapFd stdInput path
-  hSetBuffering stdin NoBuffering
 
 {- Internal -}
 

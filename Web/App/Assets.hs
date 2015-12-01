@@ -1,4 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
+
+{-|
+Module      : Web.App.Assets
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
+
+General web app operations related to managing assets.
+-}
+
 module Web.App.Assets
 (
   loadAsset
@@ -31,7 +43,9 @@ import qualified Text.CSS.Parse as CSS (parseNestedBlocks)
 import qualified Text.CSS.Render as CSS (renderNestedBlocks)
 import qualified Text.Jasmine as JS (minifym)
 
-loadAsset :: (ScottyError e, WebAppState s) => FilePath -> ActionT e (WebAppM s) ()
+-- | Loads an asset from the 'FileCache' associated with the 'WebAppM' monad.
+loadAsset :: (ScottyError e, WebAppState s) => FilePath -- ^ 'FilePath' relative to @assets/@ to load
+                                            -> ActionT e (WebAppM s) ()
 loadAsset assetsPath = do
   cache <- getCache
   exists <- liftIO $ doesFileExist relPath
@@ -40,7 +54,6 @@ loadAsset assetsPath = do
     else loadFromCache cache
   where
     mimetype = TL.fromStrict . T.decodeUtf8 . defaultMimeLookup . T.pack . takeFileName $ assetsPath
-    -- mimetype = getMimeAtPath relPath
     relPath = "assets/" ++ assetsPath
     doesntExist pth = status . Status 404 $ mconcat ["File ", pth, " does not exist."]
     loadFromCache cache = (liftIO $ FC.lookup cache assetsPath) >>= (f cache)

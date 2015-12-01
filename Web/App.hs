@@ -1,6 +1,19 @@
+{-|
+Module      : Web.App
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
+
+Root modules of webapp.
+-}
+
 module Web.App
 (
+  -- * Functions
   webappMain,
+  -- * Exported Modules
   module Web.App.Assets,
   module Web.App.Cookie,
   module Web.App.Daemon,
@@ -49,7 +62,11 @@ data Cmd
     _passwordCmdPassword :: String
   }
 
-webappMain :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -> String -> String -> IO ()
+-- | Read commandline arguments and start app accordingly.
+webappMain :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -- ^ app to start
+                                             -> String -- ^ CLI title
+                                             -> String -- ^ CLI description
+                                             -> IO ()
 webappMain app title desc = getArgs >>= getCommandArgs title desc >>= f
   where
     f c@(StartCommand True _ _ _ _ _ _ pidPath) = do

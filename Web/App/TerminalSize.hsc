@@ -1,8 +1,21 @@
 {-# LANGUAGE ForeignFunctionInterface #-}
 
--- From http://stackoverflow.com/questions/12806053/get-terminal-width-haskell
+{-|
+Module      : Web.App.TerminalSize
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
 
-module Web.App.TerminalSize (getTermSize) where
+Get the size of the terminal. Adapted from http://stackoverflow.com/questions/12806053/get-terminal-width-haskell.
+-}
+
+module Web.App.TerminalSize
+(
+  -- * Terminal Size
+  getTermSize
+)
+where
 
 import Foreign
 import Foreign.C.Error
@@ -34,8 +47,8 @@ instance Storable WinSize where
 foreign import ccall "sys/ioctl.h ioctl"
   ioctl :: CInt -> CInt -> Ptr WinSize -> IO CInt
 
--- | Return current number of (rows, columns) of the terminal.
-getTermSize :: IO (Maybe (Int, Int))
+-- | Get the size of the terminal.
+getTermSize :: IO (Maybe (Int, Int)) -- ^ @(rows, columns)@
 getTermSize = with (WinSize 0 0) $ \ws -> do
   resetErrno
   M.void $ ioctl (#const STDOUT_FILENO) (#const TIOCGWINSZ) ws

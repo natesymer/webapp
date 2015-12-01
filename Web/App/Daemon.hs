@@ -1,5 +1,17 @@
+{-|
+Module      : Web.App.Daemon
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
+
+Operations related to running a background process
+-}
+
 module Web.App.Daemon
 (
+  -- * Daemon Operations
   daemonize,
   daemonRunning,
   daemonKill
@@ -14,7 +26,10 @@ import Control.Monad (when,void)
 import System.Exit
 import System.Posix
 
-daemonKill :: Int -> FilePath -> IO ()
+-- |Kill a daemon
+daemonKill :: Int -- ^ Timeout
+           -> FilePath -- ^ 'FilePath' of a PID file
+           -> IO ()
 daemonKill timeout pidFile = fileExist pidFile >>= f
   where
     f False = return ()
@@ -28,7 +43,9 @@ daemonKill timeout pidFile = fileExist pidFile >>= f
       signalProcess sigTERM pid
       wait timeout pid
 
-daemonRunning :: FilePath -> IO Bool
+-- |Determine if a daemon is still running
+daemonRunning :: FilePath -- ^ 'FilePath' of a PID file
+              -> IO Bool
 daemonRunning pidFile = fileExist pidFile >>= f
   where
     f False = return False
@@ -36,7 +53,10 @@ daemonRunning pidFile = fileExist pidFile >>= f
     g Nothing = return False
     g (Just pid) = pidLive pid
 
-daemonize :: FilePath -> IO () -> IO ()
+-- |Start a daemonized process
+daemonize :: FilePath -- ^ 'FilePath' of a PID file
+          -> IO () -- ^ Action to execute daemonized
+          -> IO ()
 daemonize pidFile program = do
   void $ forkProcess $ do
     void $ createSession
