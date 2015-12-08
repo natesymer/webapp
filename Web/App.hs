@@ -62,13 +62,17 @@ data Cmd
     _passwordCmdPassword :: String
   }
 
--- | Read commandline arguments and start app accordingly.
+-- | Read commandline arguments and start app accordingly. When passing an
+-- additional CLI parser, it is made available under the @util@ subcommand.
 webappMain :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -- ^ app to start
-                                             -> String -- ^ CLI title
-                                             -> String -- ^ CLI description
+                                             -> String -- ^ CLI title/description
+                                             -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
+                                             -> (a -> IO ()) -- ^ action to apply to parse result of 'utilParser'
                                              -> IO ()
-webappMain app title desc = getArgs >>= getCommandArgs title desc >>= f
+webappMain app title utilParser utilf = getArgs >>= getCommandArgs utilParser title >>= processArgs
   where
+    processArgs (Right cmd) = f cmd
+    processArgs (Left utils) = utilf utils
     f c@(StartCommand True _ _ _ _ _ _ pidPath) = do
       daemonize pidPath $ f $ c { startCmdDaemonize = False }
     f (StartCommand False False port crt key out err _) = do
@@ -88,22 +92,19 @@ webappMain app title desc = getArgs >>= getCommandArgs title desc >>= f
     showStatus True = "running"
     showStatus False = "stopped"
 
-getCommandArgs :: String -> String -> [String] -> IO Cmd
-getCommandArgs title desc args = do
+getCommandArgs :: Maybe (Parser a) -> String -> [String] -> IO (Either a Cmd)
+getCommandArgs utilParser title args = do
   w <- maybe 80 snd <$> getTermSize
   handleParseResult $ execParserPure (pprefs w) parser args
   where
     pprefs = ParserPrefs "" False False True
-    parser = info (helper <*> parseCommand) (fullDesc <> progDesc desc <> header title)
-    
-parseCommand :: Parser Cmd
-parseCommand = sp <|> parseStart
-  where
-    sp = subparser $ (mkcmd "start" "Start the application server" parseStart) <>
-                     (mkcmd "stop" "Stop the application server" parseStop) <>
-                     (mkcmd "status" "Determine if the application server is running" parseStatus) <>
-                     (mkcmd "password" "Make a BCrypt hash from a password" parseHash)
-    parseStart = StartCommand
+    parser = info (helper <*> ((sp utilParser) <|> parseStart)) (fullDesc <> header title)
+    sp Nothing = subparser subCommands
+    sp (Just util) = subparser $ subCommands <> (mkcmd "util" "Utilities associated with the application" (Left <$> util))
+    subCommands = (mkcmd "start" "Start the application server" parseStart) <>
+                  (mkcmd "stop" "Stop the application server" parseStop) <>
+                  (mkcmd "status" "Determine if the application server is running" parseStatus)
+    parseStart = fmap Right $ StartCommand
       <$> (flag False True $ short 'd' <> long "daemonize" <> help "run the application server daemonized")
       <*> (flag False True $ short 'i' <> long "insecure" <> help "run the application server over insecure HTTP")
       <*> (option auto $ opt "port" 'p' "PORT" (Just 3000) "port to run the application server on")
@@ -112,9 +113,8 @@ parseCommand = sp <|> parseStart
       <*> (optional $ strOption $ opt "stdout" 'o' "FILEPATH" Nothing "redirect standard output to FILEPATH")
       <*> (optional $ strOption $ opt "stderr" 'e' "FILEPATH" Nothing "redirect standard error to FILEPATH")
       <*> (strOption $ opt "pid-file" 'z' "FILEPATH" (Just "/tmp/webapp.pid") "when daemonizing, write the PID to FILEPATH")
-    parseStop     = StopCommand <$> (strOption $ opt "pid-file" 'z' "FILEPATH" (Just "/tmp/webapp.pid") "pid file")
-    parseStatus   = StatusCommand <$> (strOption $ opt "pid-file" 'z' "FILEPATH" (Just "/tmp/webapp.pid") "pid file")
-    parseHash     = PasswordCommand <$> (strArgument $ metavar "PASSWORD" <> help "password to hash")
+    parseStop     = Right <$> StopCommand <$> (strOption $ opt "pid-file" 'z' "FILEPATH" (Just "/tmp/webapp.pid") "pid file")
+    parseStatus   = Right <$> StatusCommand <$> (strOption $ opt "pid-file" 'z' "FILEPATH" (Just "/tmp/webapp.pid") "pid file")
     opt lng shrt mvar (Just defVal) hlp = (long lng <> short shrt <> metavar mvar <> value defVal <> help hlp)
     opt lng shrt mvar Nothing       hlp = (long lng <> short shrt <> metavar mvar <> help hlp)
     mkcmd cmd desc p = command cmd $ info (helper <*> p) $ progDesc desc
