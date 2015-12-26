@@ -92,6 +92,7 @@ serveApp serve app port = do
       void $ killSockets
       teardownFileCache cache
       destroyState st
+      exitImmediately ExitSuccess
 
 -- | Serve an HTTP2 application over TLS, obeying 'settingsInstallShutdownHandler'.
 -- This setting is ignored in WarpTLS due to a bug (gasp!). See
