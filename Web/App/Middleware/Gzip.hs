@@ -10,7 +10,7 @@ Portability : Cross-Platform
 WAI middleware to GZIP HTTP responses.
 -}
 
-module Web.App.Gzip
+module Web.App.Middleware.Gzip
 (
   gzip
 )

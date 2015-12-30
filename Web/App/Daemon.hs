@@ -14,7 +14,11 @@ module Web.App.Daemon
   -- * Daemon Operations
   daemonize,
   daemonRunning,
-  daemonKill
+  daemonKill,
+  pidWrite,
+  pidRead,
+  pidKill,
+  pidLive
 )
 where
   
@@ -30,18 +34,7 @@ import System.Posix
 daemonKill :: Int -- ^ Timeout
            -> FilePath -- ^ 'FilePath' of a PID file
            -> IO ()
-daemonKill timeout pidFile = fileExist pidFile >>= f
-  where
-    f False = return ()
-    f True = do
-      pidRead pidFile >>= g
-      removeLink pidFile
-    g Nothing = return ()
-    g (Just pid) = pidLive pid >>= h pid
-    h _   False = return ()
-    h pid True = do
-      signalProcess sigTERM pid
-      wait timeout pid
+daemonKill = pidKill
 
 -- |Determine if a daemon is still running
 daemonRunning :: FilePath -- ^ 'FilePath' of a PID file
@@ -71,8 +64,6 @@ daemonize pidFile program = do
     exitImmediately ExitSuccess
   exitImmediately ExitSuccess
 
-{- Internal -}
-
 -- Wait for a process to exit
 -- if it is still running after @secs@
 -- seconds, "shoot it in the head"
@@ -85,15 +76,33 @@ wait secs pid = (when <$> pidLive pid) >>= \w -> w f
             putStrLn $ "force killing PID " ++ (show pid)
             signalProcess sigKILL pid
 
+{- Write the process's PID to a file -}
 pidWrite :: FilePath -> IO ()
 pidWrite pidPath = getProcessID >>= writeFile pidPath . show
 
+{- Read a PID from a file -}
 pidRead :: FilePath -> IO (Maybe CPid)
 pidRead pidFile = fileExist pidFile >>= f where
   f True  = fmap (Just . read) . readFile $ pidFile
   f False = return Nothing
 
+{- Determine if a PID is live -}
 pidLive :: CPid -> IO Bool
 pidLive pid = (getProcessPriority pid >> return True) `catch` f where
   f :: IOException -> IO Bool
   f _ = return False
+  
+{- Kill a PID from a file with a timeout -}
+pidKill :: Int -> FilePath -> IO ()
+pidKill timeout pidFile = fileExist pidFile >>= f
+  where
+    f False = return ()
+    f True = do
+      pidRead pidFile >>= g
+      removeLink pidFile
+    g Nothing = return ()
+    g (Just pid) = pidLive pid >>= h pid
+    h _   False = return ()
+    h pid True = do
+      signalProcess sigTERM pid
+      wait timeout pid

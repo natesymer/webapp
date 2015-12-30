@@ -19,9 +19,9 @@ module Web.App
   module Web.App.Daemon,
   module Web.App.FileCache,
   module Web.App.HTTP,
-  module Web.App.Password,
   module Web.App.IO,
-  module Web.App.Monad
+  module Web.App.Monad,
+  module Web.App.Middleware
 )
 where
 
@@ -30,16 +30,15 @@ import Web.App.Cookie
 import Web.App.Daemon
 import Web.App.FileCache
 import Web.App.HTTP
-import Web.App.Password
 import Web.App.IO
 import Web.App.Monad
 import Web.App.TerminalSize
+import Web.App.Middleware
 
 import Control.Applicative
 import Options.Applicative
 import System.Environment (getArgs)
 import Web.Scotty.Trans (ScottyT,ScottyError)
-import System.IO
 
 data Cmd
   = StartCommand {
@@ -57,9 +56,6 @@ data Cmd
   }
   | StatusCommand {
     _statusCmdPidPath :: FilePath
-  }
-  | PasswordCommand {
-    _passwordCmdPassword :: String
   }
 
 -- | Read commandline arguments and start app accordingly. When passing an
@@ -85,10 +81,6 @@ webappMain app title utilParser utilf = getArgs >>= getCommandArgs utilParser ti
       startHTTP app port
     f (StopCommand pidPath) = daemonKill 4 pidPath
     f (StatusCommand pidPath) = daemonRunning pidPath >>= putStrLn . showStatus
-    f (PasswordCommand pwd) = hashPassword pwd >>= g
-      where
-        g (Just v) = putStrLn v
-        g Nothing = hPutStrLn stderr "failed to hash password"
     showStatus True = "running"
     showStatus False = "stopped"
 

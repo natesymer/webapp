@@ -22,24 +22,21 @@ where
 
 import Web.App.Monad
 import Web.App.Monad.Internal
-import Web.App.IO
 import Web.App.FileCache
-import Web.App.Gzip
+import Web.App.Middleware
 import Web.App.Privileges
 
-import Data.Maybe
 import Control.Monad
 import Control.Monad.Reader (runReaderT)
 import Control.Concurrent.STM
 
 import Web.Scotty.Trans as Scotty
 
-import Network.Wai (responseLBS,requestHeaderHost,rawPathInfo,rawQueryString,Application)
+import Network.Wai (Application,Middleware)
 import Network.Wai.HTTP2 (promoteApplication,HTTP2Application)
 import Network.Wai.Handler.Warp (defaultSettings,setPort,getPort,getHost,setBeforeMainLoop,setInstallShutdownHandler,runHTTP2Settings)
-import Network.Wai.Handler.WarpTLS (certFile,defaultTlsSettings,keyFile,TLSSettings(..),runHTTP2TLSSocket)
+import Network.Wai.Handler.WarpTLS (certFile,defaultTlsSettings,keyFile,TLSSettings(..),runHTTP2TLSSocket,OnInsecure(..))
 import Network.Wai.Handler.Warp.Internal (Settings(..))
-import Network.HTTP.Types.Status (status301)
 import Network.Socket (sClose, withSocketsDo)
 import Data.Streaming.Network (bindPortTCP)
 import Control.Exception (bracket)
@@ -51,7 +48,7 @@ import System.Posix
 startHTTP :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -- ^ Scotty app to serve
                                             -> Int -- ^ Port to which to bind
                                             -> IO ()
-startHTTP app port = serveApp runHTTP2Settings app port
+startHTTP app port = serveApp runHTTP2Settings app port [gzip 860]
 
 -- TODO: fix setInstallShutdownHandler not working
 -- |Start a secure HTTPS server. Please note that most HTTP/2-compatible browswers
@@ -62,21 +59,23 @@ startHTTPS :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -- ^ Sc
                                              -> FilePath -- ^ 'FilePath' to an SSL private key
                                              -> IO ()
 startHTTPS app port cert key = do
-  whenPrivileged startRedirectProcess
-  serveApp (runHTTP2TLSHandled tlsset) app port
-  where tlsset = defaultTlsSettings { keyFile = key, certFile = cert }
+  serveApp (runHTTP2TLSHandled tlsset) app port [gzip 860, forceSSL]
+  where tlsset = defaultTlsSettings { keyFile = key, certFile = cert, onInsecure = AllowInsecure }
           
 
 {- Internal -}
       
-serveApp :: (ScottyError e, WebAppState s) => (Settings -> HTTP2Application -> Application -> IO ()) -- ^ function to serve resulting app
+serveApp :: (ScottyError e, WebAppState s) => (Settings -> HTTP2Application -> Application -> IO ()) -- ^ fnc to serve resulting app
                                            -> ScottyT e (WebAppM s) () -- ^ scotty app to serve
                                            -> Int -- ^ port to serve on
+                                           -> [Middleware]
                                            -> IO ()
-serveApp serve app port = do
+serveApp serve app port middlewares = do
   st <- newTVarIO =<< (WebApp <$> (newFileCache "assets/") <*> initState)-- webapp
   wai <- scottyAppT (\m -> runReaderT (runWebAppM m) st) $ do
+    mapM_ middleware middlewares
     middleware $ gzip 860 -- min length to GZIP
+    middleware $ forceSSL
     app
   serve (warpSettings st) (promoteApplication wai) wai
   where
@@ -100,31 +99,5 @@ serveApp serve app port = do
 runHTTP2TLSHandled :: TLSSettings -> Settings -> HTTP2Application -> Application -> IO ()
 runHTTP2TLSHandled tset set wai2 wai = withSocketsDo $
   bracket (bindPortTCP (getPort set) (getHost set)) sClose $ \socket -> do
-      settingsInstallShutdownHandler set (sClose socket)
-      runHTTP2TLSSocket tset set socket wai2 wai
-
-startRedirectProcess :: IO ()
-startRedirectProcess = void $ do
-  putStrLn "starting HTTP -> HTTPS process"
-  -- TODO: improve separation from parent process
-  pid <- forkProcess $ do
-    redirectStdout $ Just "/dev/null"
-    redirectStderr $ Just "/dev/null"
-    redirectStdin $ Just "/dev/null"
-    void $ installHandler sigTERM (Catch childHandler) Nothing
-    runHTTP2Settings warpSettings (promoteApplication app) app
-      
-  void $ installHandler sigTERM (Catch $ parentHandler pid) Nothing
-  void $ installHandler sigINT (Catch $ parentHandler pid) Nothing
-  where
-    warpSettings = setBeforeMainLoop (resignPrivileges "daemon") $ setPort 80 defaultSettings
-    mkHeaders r = [("Location", url r)]
-    host = fromJust . requestHeaderHost
-    url r = mconcat ["https://", host r, rawPathInfo r, rawQueryString r]
-    childHandler = exitImmediately ExitSuccess
-    parentHandler pid = do
-      putStrLn "killing HTTP -> HTTPS process"
-      signalProcess sigTERM pid
-      exitImmediately ExitSuccess
-    app req respond = respond $ responseLBS status301 (mkHeaders req) ""
-      
+    settingsInstallShutdownHandler set (sClose socket)
+    runHTTP2TLSSocket tset set socket wai2 wai
