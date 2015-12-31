@@ -13,6 +13,7 @@ module Web.App
 (
   -- * Functions
   webappMain,
+  webappMainIO,
   -- * Exported Modules
   module Web.App.Cookie,
   module Web.App.FileCache,
@@ -30,6 +31,9 @@ import Web.App.Internal.IO
 import Web.App.Internal.TerminalSize
 import Web.App.Monad
 import Web.App.Middleware
+
+import Control.Monad.IO.Class
+import Network.Wai (Response,Application)
 
 import Control.Applicative
 import Options.Applicative
@@ -52,15 +56,24 @@ data Cmd
   | StatusCommand {
     _statusCmdPidPath :: FilePath
   }
+  
+webappMainIO :: (WebAppState s) => WebAppT s IO ()-- ScottyT e (WebAppM s) () -- ^ app to start
+                                -> String -- ^ CLI title/description
+                                -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
+                                -> (a -> IO ()) -- ^ action to apply to parse result of 'utilParser'
+                                -> IO ()
+webappMainIO = webappMain id id
 
 -- | Read commandline arguments and start app accordingly. When passing an
 -- additional CLI parser, it is made available under the @util@ subcommand.
-webappMain :: (WebAppState s) => WebAppT s IO ()-- ScottyT e (WebAppM s) () -- ^ app to start
-                              -> String -- ^ CLI title/description
-                              -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
-                              -> (a -> IO ()) -- ^ action to apply to parse result of 'utilParser'
-                              -> IO ()
-webappMain app title utilParser utilf = getArgs >>= getCommandArgs utilParser title >>= processArgs
+webappMain :: (WebAppState s, MonadIO m) => (m Response -> IO Response) -- ^ action to eval a monadic computation in @m@ in @IO@
+                                         -> (m Application -> IO Application) -- ^ action to eval a monadic computation in @m@ in @IO@
+                                         -> WebAppT s m ()-- ScottyT e (WebAppM s) () -- ^ app to start
+                                         -> String -- ^ CLI title/description
+                                         -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
+                                         -> (a -> IO ()) -- ^ action to apply to parse result of 'utilParser'
+                                         -> IO ()
+webappMain runToIO appToIO app title utilParser utilf = getArgs >>= getCommandArgs utilParser title >>= processArgs
   where
     processArgs (Right cmd) = f cmd
     processArgs (Left utils) = utilf utils
@@ -69,11 +82,11 @@ webappMain app title utilParser utilf = getArgs >>= getCommandArgs utilParser ti
     f (StartCommand False False port crt key out err _) = do
       redirectStdout out
       redirectStderr err
-      startHTTPS app id port crt key
+      startHTTPS app runToIO appToIO port crt key
     f (StartCommand False True port _ _ out err _) = do
       redirectStdout out
       redirectStderr err
-      startHTTP app id port
+      startHTTP app runToIO appToIO port
     f (StopCommand pidPath) = daemonKill 4 pidPath
     f (StatusCommand pidPath) = daemonRunning pidPath >>= putStrLn . showStatus
     showStatus True = "running"

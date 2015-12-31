@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-|
 Module      : Web.App.Monad.WebAppT
@@ -49,7 +49,7 @@ import Data.List
 
 import Network.Wai
 import Network.HTTP.Types.Status (status404)
-    
+
 -- | Used to determine if a route can handle a request           
 type Predicate = Request -> Bool
                
@@ -83,46 +83,28 @@ instance (WebAppState s) => MonadTrans (WebAppT s) where
 
 instance (WebAppState s, MonadIO m) => MonadIO (WebAppT s m) where
   liftIO = lift . liftIO
-  
--- scottyAppT :: (Monad m, Monad n)
---            => (m Response -> IO Response) -- ^ Run monad 'm' into 'IO', called at each action.
---            -> ScottyT e m ()
---            -> n Application
--- scottyAppT runActionToIO defs = do
---     let s = execState (runS defs) def
---     let rapp req callback = runActionToIO (foldl (flip ($)) notFoundApp (routes s) req) >>= callback
---     return $ foldl (flip ($)) rapp (middlewares s)
-  
+
 -- |Turn a WebAppT computation into a WAI 'Application'.
-toApplication :: (WebAppState s, Monad m) => TVar s -- ^ initial state
-                                          -> (m Response -> IO Response) -- ^ action to run response into IO
-                                          -> WebAppT s m () -- ^ a web app
-                                          -> m Application -- ^ resulting 'Application'
-toApplication tvar runToIO act = do
+toApplication :: (WebAppState s, Monad m, Monad n) => TVar s -- ^ initial state
+                                                  -> (m Response -> IO Response) -- ^ action to eval a monadic computation in @m@ in @IO@
+                                                  -> (m Application -> n Application) -- ^ action to eval a monadic computation in @m@ in @IO@
+                                                  -> WebAppT s m () -- ^ a web app
+                                                  -> n Application -- ^ resulting 'Application'
+toApplication tvar respToIO appToN act = appToN $ do
   ~(_,routes,middlewares) <- runWebAppT act [] []
-  let rts = map (\(p,a) -> (p,evalRouteT tvar a)) routes -- [(Request -> Bool), (Request -> m Response)]
-  return $ mkApp rts -- $ f (mkApp rts) middlewares
+  let statefulRoutes = map (\(p,a) -> (p,evalRouteT tvar a)) routes
+      application = mkApp statefulRoutes
+  return $ f application middlewares
   where
-    -- respondM :: (Monad m, Monad n) => (Response -> IO ResponseReceived) -> m Response -> n ResponseReceived
-    -- respondM respond = lift respond
     f :: Application -> [Middleware] -> Application
     f app [] = app
     f app (x:xs) = f (x app) xs
-   --  mkApp :: (Monad m) => [(Predicate, Request -> m Response)] -> Application
-    mkApp routes req respond = case find (routePasses req) routes of
-      Just route -> (runToIO $ routeResponse req route) >>= respond 
-      Nothing -> respond $ responseLBS status404 [] "Not found."
-      where routePasses r (p,_) = p r
+    mkApp routes req respond = app
+      where app = maybe notFound found $ find (routePasses req) routes
+            routePasses r (p,_) = p r
             routeResponse r (_,a) = a r
-    
-    -- mkApp :: (WebAppState s) => TVar s -> [(Predicate, RouteT s m ())] -> Application
-    -- mkApp st routes req respond = case find (routePasses req) routes of
-    --   Just (_,ra) -> do
-    --     --  resp <- evalRouteT st ra req -- TODO: FIXME m1 vs IO (col 31 - ra)
-    --     --  respond resp
-    --     respondM respond $ evalRouteT st ra req
-    --   Nothing -> respond $ responseLBS status404 [] "Not found."
-    --   where routePasses r (p,_) = p r
+            notFound = respond $ responseLBS status404 [] "Not found."
+            found rt = (respToIO $ routeResponse req rt) >>= respond 
       
 -- |Use a middleware
 middleware :: (WebAppState s, Monad m) => Middleware -> WebAppT s m ()

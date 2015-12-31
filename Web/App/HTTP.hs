@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, RankNTypes #-}
 
 {-|
 Module      : Web.App.HTTP
@@ -42,36 +42,38 @@ import System.Posix
 
 -- |Start an insecure HTTP server.
 startHTTP :: (WebAppState s, MonadIO m) => WebAppT s m () -- ^ Scotty app to serve
-                                        -> (m Response -> IO Response)
+                                        -> (m Response -> IO Response) -- ^ action to eval a monadic computation in @m@ in @IO@
+                                        -> (m Application -> IO Application) -- ^ action to eval a monadic computation in @m@ in @IO@
                                         -> Int -- ^ Port to which to bind
-                                        -> m ()
-startHTTP app runToIO port = serveApp serve runToIO app port [gzip 860]
-  where serve s a2 a = liftIO $ runHTTP2Settings s a2 a
+                                        -> IO ()
+startHTTP app runToIO appToIO port = serveApp (runHTTP2Settings) runToIO appToIO app port [gzip 860]
 
 -- |Start a secure HTTPS server. Please note that most HTTP/2-compatible browswers
 -- require HTTPS in order to upgrade to HTTP/2.
 startHTTPS :: (WebAppState s, MonadIO m) => WebAppT s m () -- ^ Scotty app to serve
-                                         -> (m Response -> IO Response)
+                                         -> (m Response -> IO Response) -- ^ action to eval a monadic computation in @m@ in @IO@
+                                         -> (m Application -> IO Application) -- ^ action to eval a monadic computation in @m@ in @IO@
                                          -> Int -- ^ Port to which to bind
                                          -> FilePath -- ^ 'FilePath' to an SSL certificate
                                          -> FilePath -- ^ 'FilePath' to an SSL private key
-                                         -> m ()
-startHTTPS app runToIO port cert key = do
-  serveApp serve runToIO app port [gzip 860, forceSSL]
-  where tlsset = defaultTlsSettings { keyFile = key, certFile = cert, onInsecure = AllowInsecure }
-        serve s a2 a = liftIO $ runHTTP2TLSHandled tlsset s a2 a
+                                         -> IO ()
+startHTTPS app runToIO appToIO port cert key = serveApp serve runToIO appToIO app port mw
+  where mw = [gzip 860, forceSSL]
+        serve = runHTTP2TLSHandled tlsset
+        tlsset = defaultTlsSettings { keyFile = key, certFile = cert, onInsecure = AllowInsecure }     
 
 {- Internal -}
 
-serveApp :: (WebAppState s, MonadIO m) => (Settings -> HTTP2Application -> Application -> m ()) -- ^ fnc to serve resulting app
-                                       -> (m Response -> IO Response)
+serveApp :: (WebAppState s, MonadIO m) => (Settings -> HTTP2Application -> Application -> IO ()) -- ^ fnc to serve resulting app
+                                       -> (m Response -> IO Response) -- ^ action to eval a monadic computation in @m@ in @IO@
+                                       -> (m Application -> IO Application) -- ^ action to eval a monadic computation in @m@ in @IO@
                                        -> WebAppT s m () -- ^ app to serve
                                        -> Int -- ^ port to serve on
-                                       -> [Middleware]
-                                       -> m ()
-serveApp serve runToIO app port middlewares = do
-  st <- liftIO $ newTVarIO =<< initState-- (WebApp <$> (newFileCache "assets/") <*> initState)-- webapp
-  wai <- toApplication st runToIO $ do
+                                       -> [Middleware] -- ^ middleware to add to the app
+                                       -> IO ()
+serveApp serve runToIO appToIO app port middlewares = do
+  st <- newTVarIO =<< initState
+  wai <- toApplication st runToIO appToIO $ do
     mapM_ middleware middlewares
     app
   serve (warpSettings st) (promoteApplication wai) wai

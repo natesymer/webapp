@@ -16,9 +16,9 @@ instance WebAppState Integer where
     print st
 
 main :: IO ()
-main = webappMain app "My Web App" (Just parseUtil) handleUtil
+main = webappMainIO app "My Web App" (Just parseUtil) handleUtil
 
-app :: (MonadIO m) => WebAppT Integer m ()
+app :: WebAppT Integer IO ()
 app = do
   route (\r -> True) $ do
     writeBody "Touch my body!\n"
