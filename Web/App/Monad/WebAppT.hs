@@ -9,7 +9,18 @@ Stability   : experimental
 Portability : POSIX
 
 Defines a monad transformer used for defining routes
-and using middleware
+and using middleware.
+-}
+
+{-
+TODO
+
+* Route patterns (IE match a static path or a regex)
+* Generalize from IO
+* Errors!
+* HTTP2 & HTTP2 server push
+* HTTP params
+
 -}
 
 {-# LANGUAGE TupleSections, Rank2Types #-}
@@ -37,7 +48,7 @@ import Control.Concurrent.STM
 import Data.List
 
 import Network.Wai
-import Network.HTTP.Types.Status (status404,status200)
+import Network.HTTP.Types.Status (status404)
     
 -- | Used to determine if a route can handle a request           
 type Predicate = Request -> Bool
@@ -73,25 +84,45 @@ instance (WebAppState s) => MonadTrans (WebAppT s) where
 instance (WebAppState s, MonadIO m) => MonadIO (WebAppT s m) where
   liftIO = lift . liftIO
   
+-- scottyAppT :: (Monad m, Monad n)
+--            => (m Response -> IO Response) -- ^ Run monad 'm' into 'IO', called at each action.
+--            -> ScottyT e m ()
+--            -> n Application
+-- scottyAppT runActionToIO defs = do
+--     let s = execState (runS defs) def
+--     let rapp req callback = runActionToIO (foldl (flip ($)) notFoundApp (routes s) req) >>= callback
+--     return $ foldl (flip ($)) rapp (middlewares s)
+  
 -- |Turn a WebAppT computation into a WAI 'Application'.
-toApplication :: (WebAppState s, MonadIO m) => TVar s -- ^ initial state
-                                          -> WebAppT s m () -- ^ calculation
+toApplication :: (WebAppState s, Monad m) => TVar s -- ^ initial state
+                                          -> (m Response -> IO Response) -- ^ action to run response into IO
+                                          -> WebAppT s m () -- ^ a web app
                                           -> m Application -- ^ resulting 'Application'
-toApplication tvar act = do
+toApplication tvar runToIO act = do
   ~(_,routes,middlewares) <- runWebAppT act [] []
-  f (mkApp tvar routes) middlewares
+  let rts = map (\(p,a) -> (p,evalRouteT tvar a)) routes -- [(Request -> Bool), (Request -> m Response)]
+  return $ mkApp rts -- $ f (mkApp rts) middlewares
   where
-    f :: (MonadIO m) => Application -> [Middleware] -> m Application
-    f app [] = return app
+    -- respondM :: (Monad m, Monad n) => (Response -> IO ResponseReceived) -> m Response -> n ResponseReceived
+    -- respondM respond = lift respond
+    f :: Application -> [Middleware] -> Application
+    f app [] = app
     f app (x:xs) = f (x app) xs
-    mkApp :: (WebAppState s, MonadIO m) => TVar s -> [(Predicate, RouteT s m ())] -> Application
-    mkApp st routes = \req respond -> case find (routePasses req) routes of
-      -- Just (_, ra) -> evalRouteT st ra req >>= respond -- TODO: FIXME m1 vs IO
-      Just (_, ra) -> do
-        resp <- evalRouteT st ra req -- TODO: FIXME m1 vs IO (91:31 - ra)
-        respond resp
+   --  mkApp :: (Monad m) => [(Predicate, Request -> m Response)] -> Application
+    mkApp routes req respond = case find (routePasses req) routes of
+      Just route -> (runToIO $ routeResponse req route) >>= respond 
       Nothing -> respond $ responseLBS status404 [] "Not found."
       where routePasses r (p,_) = p r
+            routeResponse r (_,a) = a r
+    
+    -- mkApp :: (WebAppState s) => TVar s -> [(Predicate, RouteT s m ())] -> Application
+    -- mkApp st routes req respond = case find (routePasses req) routes of
+    --   Just (_,ra) -> do
+    --     --  resp <- evalRouteT st ra req -- TODO: FIXME m1 vs IO (col 31 - ra)
+    --     --  respond resp
+    --     respondM respond $ evalRouteT st ra req
+    --   Nothing -> respond $ responseLBS status404 [] "Not found."
+    --   where routePasses r (p,_) = p r
       
 -- |Use a middleware
 middleware :: (WebAppState s, Monad m) => Middleware -> WebAppT s m ()

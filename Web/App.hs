@@ -69,11 +69,11 @@ webappMain app title utilParser utilf = getArgs >>= getCommandArgs utilParser ti
     f (StartCommand False False port crt key out err _) = do
       redirectStdout out
       redirectStderr err
-      startHTTPS app port crt key
+      startHTTPS app id port crt key
     f (StartCommand False True port _ _ out err _) = do
       redirectStdout out
       redirectStderr err
-      startHTTP app port
+      startHTTP app id port
     f (StopCommand pidPath) = daemonKill 4 pidPath
     f (StatusCommand pidPath) = daemonRunning pidPath >>= putStrLn . showStatus
     showStatus True = "running"

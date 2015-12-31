@@ -79,7 +79,7 @@ appendBody a b = \w f -> a w f >> b w f
   
 {- Monadic actions -}
   
-evalRouteT :: (WebAppState s, MonadIO m) => TVar s -> RouteT s m a -> Request -> m Response
+evalRouteT :: (WebAppState s, Monad m) => TVar s -> RouteT s m () -> Request -> m Response
 evalRouteT st act req = do
   ~(_,s,h,bdy) <- runRouteT act st req
   return $ responseStream (fromMaybe status200 s) h bdy

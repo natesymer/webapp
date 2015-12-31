@@ -28,7 +28,7 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Concurrent.STM
 
-import Network.Wai (Application,Middleware)
+import Network.Wai (Application,Middleware,Response)
 import Network.Wai.HTTP2 (promoteApplication,HTTP2Application)
 import Network.Wai.Handler.Warp (defaultSettings,setPort,getPort,getHost,setBeforeMainLoop,setInstallShutdownHandler,runHTTP2Settings)
 import Network.Wai.Handler.WarpTLS (certFile,defaultTlsSettings,keyFile,TLSSettings(..),runHTTP2TLSSocket,OnInsecure(..))
@@ -42,34 +42,38 @@ import System.Posix
 
 -- |Start an insecure HTTP server.
 startHTTP :: (WebAppState s, MonadIO m) => WebAppT s m () -- ^ Scotty app to serve
+                                        -> (m Response -> IO Response)
                                         -> Int -- ^ Port to which to bind
                                         -> m ()
-startHTTP app port = serveApp serve app port [gzip 860]
+startHTTP app runToIO port = serveApp serve runToIO app port [gzip 860]
   where serve s a2 a = liftIO $ runHTTP2Settings s a2 a
+
 -- |Start a secure HTTPS server. Please note that most HTTP/2-compatible browswers
 -- require HTTPS in order to upgrade to HTTP/2.
 startHTTPS :: (WebAppState s, MonadIO m) => WebAppT s m () -- ^ Scotty app to serve
+                                         -> (m Response -> IO Response)
                                          -> Int -- ^ Port to which to bind
                                          -> FilePath -- ^ 'FilePath' to an SSL certificate
                                          -> FilePath -- ^ 'FilePath' to an SSL private key
                                          -> m ()
-startHTTPS app port cert key = do
-  serveApp (runHTTP2TLSHandled tlsset) app port [gzip 860, forceSSL]
+startHTTPS app runToIO port cert key = do
+  serveApp serve runToIO app port [gzip 860, forceSSL]
   where tlsset = defaultTlsSettings { keyFile = key, certFile = cert, onInsecure = AllowInsecure }
-          
+        serve s a2 a = liftIO $ runHTTP2TLSHandled tlsset s a2 a
 
 {- Internal -}
 
 serveApp :: (WebAppState s, MonadIO m) => (Settings -> HTTP2Application -> Application -> m ()) -- ^ fnc to serve resulting app
+                                       -> (m Response -> IO Response)
                                        -> WebAppT s m () -- ^ app to serve
                                        -> Int -- ^ port to serve on
                                        -> [Middleware]
                                        -> m ()
-serveApp serve app port middlewares = do
+serveApp serve runToIO app port middlewares = do
   st <- liftIO $ newTVarIO =<< initState-- (WebApp <$> (newFileCache "assets/") <*> initState)-- webapp
-  wai <- toApplication st $ do
+  wai <- toApplication st runToIO $ do
     mapM_ middleware middlewares
-    app 
+    app
   serve (warpSettings st) (promoteApplication wai) wai
   where
     warpSettings tvar = setBeforeMainLoop before
@@ -87,7 +91,7 @@ serveApp serve app port middlewares = do
 -- | Serve an HTTP2 application over TLS, obeying 'settingsInstallShutdownHandler'.
 -- This setting is ignored in WarpTLS due to a bug (gasp!). See
 -- https://github.com/yesodweb/wai/issues/483
-runHTTP2TLSHandled :: (MonadIO m) => TLSSettings -> Settings -> HTTP2Application -> Application -> m ()
+runHTTP2TLSHandled :: TLSSettings -> Settings -> HTTP2Application -> Application -> IO ()
 runHTTP2TLSHandled tset set wai2 wai = liftIO $ withSocketsDo $
   bracket (bindPortTCP (getPort set) (getHost set)) sClose $ \socket -> do
     settingsInstallShutdownHandler set (sClose socket)
