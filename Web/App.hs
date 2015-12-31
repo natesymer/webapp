@@ -14,31 +14,26 @@ module Web.App
   -- * Functions
   webappMain,
   -- * Exported Modules
-  module Web.App.Assets,
   module Web.App.Cookie,
-  module Web.App.Daemon,
   module Web.App.FileCache,
   module Web.App.HTTP,
-  module Web.App.IO,
   module Web.App.Monad,
   module Web.App.Middleware
 )
 where
 
-import Web.App.Assets
 import Web.App.Cookie
-import Web.App.Daemon
 import Web.App.FileCache
 import Web.App.HTTP
-import Web.App.IO
+import Web.App.Internal.Daemon
+import Web.App.Internal.IO
+import Web.App.Internal.TerminalSize
 import Web.App.Monad
-import Web.App.TerminalSize
 import Web.App.Middleware
 
 import Control.Applicative
 import Options.Applicative
 import System.Environment (getArgs)
-import Web.Scotty.Trans (ScottyT,ScottyError)
 
 data Cmd
   = StartCommand {
@@ -60,11 +55,11 @@ data Cmd
 
 -- | Read commandline arguments and start app accordingly. When passing an
 -- additional CLI parser, it is made available under the @util@ subcommand.
-webappMain :: (ScottyError e, WebAppState s) => ScottyT e (WebAppM s) () -- ^ app to start
-                                             -> String -- ^ CLI title/description
-                                             -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
-                                             -> (a -> IO ()) -- ^ action to apply to parse result of 'utilParser'
-                                             -> IO ()
+webappMain :: (WebAppState s) => WebAppT s IO ()-- ScottyT e (WebAppM s) () -- ^ app to start
+                              -> String -- ^ CLI title/description
+                              -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
+                              -> (a -> IO ()) -- ^ action to apply to parse result of 'utilParser'
+                              -> IO ()
 webappMain app title utilParser utilf = getArgs >>= getCommandArgs utilParser title >>= processArgs
   where
     processArgs (Right cmd) = f cmd

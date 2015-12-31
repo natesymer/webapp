@@ -7,6 +7,7 @@ import Options.Applicative
 import Network.HTTP.Types (Status(..))
 import Data.Text.Lazy (Text)
 import qualified Data.ByteString.Lazy.Char8 as BL
+import Control.Monad.IO.Class
 
 instance WebAppState Integer where
   initState = return 0
@@ -17,23 +18,28 @@ instance WebAppState Integer where
 main :: IO ()
 main = webappMain app "My Web App" (Just parseUtil) handleUtil
 
-app :: ScottyT Text (WebAppM Integer) ()
+app :: WebAppT Integer IO ()
 app = do
-  get "/" $ do
-    getState >>= raw . BL.pack . show
-  
-  get "/add" $ do
-    modifyState ((+) 1)
-    status $ Status 302 ""
-    setHeader "Location" "/"
-    
-  get "/subtract" $ do
-    count <- getState
-    putState $ count-1
-    status $ Status 302 ""
-    setHeader "Location" "/"
-    
-  get "/assets/:file" $ param "file" >>= loadAsset
+  route $ Route (const True) $ do
+    writeBody "Touch my body!"
+
+-- app :: ScottyT Text (WebAppM Integer) ()
+-- app = do
+--   get "/" $ do
+--     getState >>= raw . BL.pack . show
+--
+--   get "/add" $ do
+--     modifyState ((+) 1)
+--     status $ Status 302 ""
+--     setHeader "Location" "/"
+--
+--   get "/subtract" $ do
+--     count <- getState
+--     putState $ count-1
+--     status $ Status 302 ""
+--     setHeader "Location" "/"
+--
+--   get "/assets/:file" $ param "file" >>= loadAsset
   
 data Util = Password String
   
