@@ -37,7 +37,7 @@ import Control.Concurrent.STM
 import Data.List
 
 import Network.Wai
-import Network.HTTP.Types.Status (status404)
+import Network.HTTP.Types.Status (status404,status200)
     
 -- | Used to determine if a route can handle a request           
 type Predicate = Request -> Bool
@@ -74,23 +74,24 @@ instance (WebAppState s, MonadIO m) => MonadIO (WebAppT s m) where
   liftIO = lift . liftIO
   
 -- |Turn a WebAppT computation into a WAI 'Application'.
-toApplication :: (WebAppState s, Monad m) => TVar s -- ^ initial state
+toApplication :: (WebAppState s, MonadIO m) => TVar s -- ^ initial state
                                           -> WebAppT s m () -- ^ calculation
                                           -> m Application -- ^ resulting 'Application'
 toApplication tvar act = do
   ~(_,routes,middlewares) <- runWebAppT act [] []
   f (mkApp tvar routes) middlewares
   where
-    f :: (Monad m) => Application -> [Middleware] -> m Application
+    f :: (MonadIO m) => Application -> [Middleware] -> m Application
     f app [] = return app
     f app (x:xs) = f (x app) xs
-    mkApp :: (WebAppState s, Monad m) => TVar s -> [(Predicate, RouteT s m ())] -> Application
+    mkApp :: (WebAppState s, MonadIO m) => TVar s -> [(Predicate, RouteT s m ())] -> Application
     mkApp st routes = \req respond -> case find (routePasses req) routes of
-      Just (_, ra) -> evalRouteT st ra req >>= respond -- TODO: FIXME m1 vs IO
+      -- Just (_, ra) -> evalRouteT st ra req >>= respond -- TODO: FIXME m1 vs IO
+      Just (_, ra) -> do
+        resp <- evalRouteT st ra req -- TODO: FIXME m1 vs IO (91:31 - ra)
+        respond resp
       Nothing -> respond $ responseLBS status404 [] "Not found."
-      where
-        routePasses :: (WebAppState s, MonadIO m) => Request -> ((Request -> Bool), RouteT s m a) -> Bool
-        routePasses r (p,_) = p r
+      where routePasses r (p,_) = p r
       
 -- |Use a middleware
 middleware :: (WebAppState s, Monad m) => Middleware -> WebAppT s m ()

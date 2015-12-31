@@ -20,7 +20,7 @@ main = webappMain app "My Web App" (Just parseUtil) handleUtil
 
 app :: WebAppT Integer IO ()
 app = do
-  route $ Route (const True) $ do
+  route (\r -> True) $ do
     writeBody "Touch my body!"
 
 -- app :: ScottyT Text (WebAppM Integer) ()
