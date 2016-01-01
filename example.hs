@@ -2,11 +2,12 @@
 module Main (main) where
     
 import Web.App
-import Web.Scotty.Trans
 import Options.Applicative
 import Network.HTTP.Types (Status(..))
 import Data.Text.Lazy (Text)
 import qualified Data.ByteString.Lazy.Char8 as BL
+import Blaze.ByteString.Builder
+import Blaze.ByteString.Builder.Char.Utf8
 import Control.Monad.IO.Class
 
 instance WebAppState Integer where
@@ -20,28 +21,29 @@ main = webappMainIO app "My Web App" (Just parseUtil) handleUtil
 
 app :: WebAppT Integer IO ()
 app = do
-  route (\r -> True) $ do
-    writeBody "Touch my body!\n"
-    writeBody "This is another part of the HTTP response!"
+  get (literal "/") $ do
+    addHeader "Content-Type" "text/plain"
+    getState >>= writeBody . fromString . show
 
--- app :: ScottyT Text (WebAppM Integer) ()
--- app = do
---   get "/" $ do
---     getState >>= raw . BL.pack . show
---
---   get "/add" $ do
---     modifyState ((+) 1)
---     status $ Status 302 ""
---     setHeader "Location" "/"
---
---   get "/subtract" $ do
---     count <- getState
---     putState $ count-1
---     status $ Status 302 ""
---     setHeader "Location" "/"
---
---   get "/assets/:file" $ param "file" >>= loadAsset
-  
+  get (literal "/add") $ do
+    modifyState ((+) 1)
+    status $ Status 302 ""
+    addHeader "Location" "/"
+    
+  get (literal "/subtract") $ do
+    modifyState ((-) 1)
+    status $ Status 302 ""
+    addHeader "Location" "/"
+
+  get (literal "/reset") $ do
+    setState 0
+    status $ Status 302 ""
+    addHeader "Location" "/"
+    
+  get (literal "/message") $ do
+    writeBody "writeBody \"This is a subpath,\\n\"\n"
+    writeBody "writeBody \"hear it roar!\""
+
 data Util = Password String
   
 parseUtil :: Parser Util

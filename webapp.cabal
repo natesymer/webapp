@@ -32,6 +32,7 @@ Library
                      Web.App.Middleware.Gzip
                      Web.App.Middleware.ForceSSL
                      Web.App.Internal.TerminalSize
+                     Web.App.RouteMatching
   other-modules:     Web.App.Internal.IO
                      Web.App.Internal.Daemon
                      Web.App.Internal.Privileges
@@ -46,6 +47,7 @@ Library
                      warp-tls,
                      network,
                      streaming-commons,
+                     regex-compat,
                      http-types,
                      bytestring,
                      data-default,

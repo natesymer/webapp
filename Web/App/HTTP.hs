@@ -23,13 +23,14 @@ where
 import Web.App.Monad
 import Web.App.Middleware
 import Web.App.Internal.Privileges
+import Web.App.State
 
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Concurrent.STM
 
 import Network.Wai (Application,Middleware,Response)
-import Network.Wai.HTTP2 (promoteApplication,HTTP2Application)
+import Network.Wai.HTTP2 (HTTP2Application)
 import Network.Wai.Handler.Warp (defaultSettings,setPort,getPort,getHost,setBeforeMainLoop,setInstallShutdownHandler,runHTTP2Settings)
 import Network.Wai.Handler.WarpTLS (certFile,defaultTlsSettings,keyFile,TLSSettings(..),runHTTP2TLSSocket,OnInsecure(..))
 import Network.Wai.Handler.Warp.Internal (Settings(..))
@@ -70,10 +71,10 @@ serveApp :: (WebAppState s, MonadIO m) => (Settings -> HTTP2Application -> Appli
                                        -> IO ()
 serveApp serve runToIO app port middlewares = do
   st <- newTVarIO =<< initState
-  wai <- toApplication st runToIO $ do
+  (wai2, wai) <- toApplication st runToIO $ do
     mapM_ middleware middlewares
     app
-  serve (warpSettings st) (promoteApplication wai) wai
+  serve (warpSettings st) wai2 wai
   where
     warpSettings tvar = setBeforeMainLoop before
                         $ setInstallShutdownHandler (installShutdown tvar)

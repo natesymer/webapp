@@ -9,8 +9,10 @@ module Web.App.Monad.RouteT
   writeBody,
   getState,
   setState,
+  modifyState,
   request,
   addHeader,
+  status
 )
 where
   
@@ -97,8 +99,16 @@ setState newST = RouteT $ \st _ -> do
   liftIO $ atomically $ writeTVar st newST
   return ((),Nothing,[],nullBody)
   
+modifyState :: (WebAppState s, MonadIO m) => (s -> s) -> RouteT s m ()
+modifyState f = RouteT $ \st _ -> do
+  liftIO $ atomically $ modifyTVar st f
+  return ((),Nothing,[],nullBody)
+  
 request :: (WebAppState s, MonadIO m) => RouteT s m Request
 request = RouteT $ \_ req -> return (req,Nothing,[],nullBody)
 
 addHeader :: (WebAppState s, MonadIO m) => HeaderName -> ByteString -> RouteT s m ()
 addHeader k v = RouteT $ \_ _ -> return ((),Nothing,[(k,v)],nullBody)
+
+status :: (WebAppState s, MonadIO m) => Status -> RouteT s m ()
+status s = RouteT $ \_ _ -> return ((),Just s,[],nullBody)

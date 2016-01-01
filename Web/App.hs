@@ -19,7 +19,9 @@ module Web.App
   module Web.App.FileCache,
   module Web.App.HTTP,
   module Web.App.Monad,
-  module Web.App.Middleware
+  module Web.App.Middleware,
+  module Web.App.RouteMatching,
+  module Web.App.State
 )
 where
 
@@ -30,7 +32,9 @@ import Web.App.Internal.Daemon
 import Web.App.Internal.IO
 import Web.App.Internal.TerminalSize
 import Web.App.Monad
+import Web.App.State
 import Web.App.Middleware
+import Web.App.RouteMatching
 
 import Control.Monad.IO.Class
 import Network.Wai (Response)
