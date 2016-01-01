@@ -12,7 +12,9 @@ module Web.App.Monad.RouteT
   modifyState,
   request,
   addHeader,
-  status
+  status,
+  headers,
+  params
 )
 where
   
@@ -25,6 +27,7 @@ import Control.Concurrent.STM
 import Network.Wai
 import Network.HTTP.Types.Status
 import Network.HTTP.Types.Header
+import Network.HTTP.Types.URI
 
 import Data.Maybe
 
@@ -112,3 +115,12 @@ addHeader k v = RouteT $ \_ _ -> return ((),Nothing,[(k,v)],nullBody)
 
 status :: (WebAppState s, MonadIO m) => Status -> RouteT s m ()
 status s = RouteT $ \_ _ -> return ((),Just s,[],nullBody)
+
+headers :: (WebAppState s, MonadIO m) => RouteT s m RequestHeaders
+headers = fmap requestHeaders request
+  
+-- TODO: get from form as well
+params :: (WebAppState s, MonadIO m) => RouteT s m Query
+params = fmap queryString request
+
+-- TODO: body
