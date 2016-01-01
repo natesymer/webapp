@@ -43,21 +43,19 @@ import System.Posix
 -- |Start an insecure HTTP server.
 startHTTP :: (WebAppState s, MonadIO m) => WebAppT s m () -- ^ Scotty app to serve
                                         -> (m Response -> IO Response) -- ^ action to eval a monadic computation in @m@ in @IO@
-                                        -> (m Application -> IO Application) -- ^ action to eval a monadic computation in @m@ in @IO@
                                         -> Int -- ^ Port to which to bind
                                         -> IO ()
-startHTTP app runToIO appToIO port = serveApp (runHTTP2Settings) runToIO appToIO app port [gzip 860]
+startHTTP app runToIO port = serveApp (runHTTP2Settings) runToIO app port [gzip 860]
 
 -- |Start a secure HTTPS server. Please note that most HTTP/2-compatible browswers
 -- require HTTPS in order to upgrade to HTTP/2.
 startHTTPS :: (WebAppState s, MonadIO m) => WebAppT s m () -- ^ Scotty app to serve
                                          -> (m Response -> IO Response) -- ^ action to eval a monadic computation in @m@ in @IO@
-                                         -> (m Application -> IO Application) -- ^ action to eval a monadic computation in @m@ in @IO@
                                          -> Int -- ^ Port to which to bind
                                          -> FilePath -- ^ 'FilePath' to an SSL certificate
                                          -> FilePath -- ^ 'FilePath' to an SSL private key
                                          -> IO ()
-startHTTPS app runToIO appToIO port cert key = serveApp serve runToIO appToIO app port mw
+startHTTPS app runToIO port cert key = serveApp serve runToIO app port mw
   where mw = [gzip 860, forceSSL]
         serve = runHTTP2TLSHandled tlsset
         tlsset = defaultTlsSettings { keyFile = key, certFile = cert, onInsecure = AllowInsecure }     
@@ -66,14 +64,13 @@ startHTTPS app runToIO appToIO port cert key = serveApp serve runToIO appToIO ap
 
 serveApp :: (WebAppState s, MonadIO m) => (Settings -> HTTP2Application -> Application -> IO ()) -- ^ fnc to serve resulting app
                                        -> (m Response -> IO Response) -- ^ action to eval a monadic computation in @m@ in @IO@
-                                       -> (m Application -> IO Application) -- ^ action to eval a monadic computation in @m@ in @IO@
                                        -> WebAppT s m () -- ^ app to serve
                                        -> Int -- ^ port to serve on
                                        -> [Middleware] -- ^ middleware to add to the app
                                        -> IO ()
-serveApp serve runToIO appToIO app port middlewares = do
+serveApp serve runToIO app port middlewares = do
   st <- newTVarIO =<< initState
-  wai <- toApplication st runToIO appToIO $ do
+  wai <- toApplication st runToIO $ do
     mapM_ middleware middlewares
     app
   serve (warpSettings st) (promoteApplication wai) wai
