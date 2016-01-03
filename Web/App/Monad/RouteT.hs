@@ -4,8 +4,11 @@ module Web.App.Monad.RouteT
 (
   -- * RouteT monad transformer
   RouteT(..),
+  -- * Intermediate Types
+  RouteResult,
+  toResponse,
+  toResponder,
   -- * Monadic actions
-  evalRouteT,
   writeBody,
   getState,
   setState,
@@ -25,6 +28,7 @@ import Control.Monad.Trans.Class
 import Control.Concurrent.STM
 
 import Network.Wai
+import Network.Wai.HTTP2
 import Network.HTTP.Types.Status
 import Network.HTTP.Types.Header
 import Network.HTTP.Types.URI
@@ -39,6 +43,8 @@ newtype RouteT s m a = RouteT {
             -> Request
             -> m (a, Maybe Status, ResponseHeaders, StreamingBody)
 }
+
+type RouteResult = (Status, ResponseHeaders, StreamingBody)
 
 instance (WebAppState s, Functor m) => Functor (RouteT s m) where
   fmap f m = RouteT $ \st req -> fmap (\(a,s,h,b) -> (f a,s,h,b)) $ runRouteT m st req
@@ -82,12 +88,31 @@ mkBody b = \w f -> (w b) >> f
 appendBody :: StreamingBody -> StreamingBody -> StreamingBody
 appendBody a b = \w f -> a w f >> b w f
   
-{- Monadic actions -}
+{- Route Evaluation -}
   
-evalRouteT :: (WebAppState s, Monad m) => TVar s -> RouteT s m () -> Request -> m Response
-evalRouteT st act req = do
-  ~(_,s,h,bdy) <- runRouteT act st req
-  return $ responseStream (fromMaybe status200 s) h bdy
+toResponse :: (WebAppState s, Monad m, Monad n) => TVar s -- ^ initial state
+                                                -> RouteT s m () -- ^ route action
+                                                -> Request -- ^ incoming request
+                                                -> (m RouteResult -> n RouteResult) -- ^ fnc to eval a monadic computation in @m@ in @n@
+                                                -> n Response
+toResponse st act req runToN = do
+  ~(s,h,b) <- runToN (removeA <$> runRouteT act st req)
+  return $ responseStream s h b
+  where removeA (_,s',h',b') = (fromMaybe status200 s',h',b')
+  
+toResponder :: (WebAppState s, Monad m, Monad n) => TVar s -- ^ initial state
+                                                 -> RouteT s m () -- ^ route action
+                                                 -> Request -- ^ incoming request
+                                                 -> (m RouteResult -> n RouteResult) -- ^ fnc to eval a monadic computation in @m@ in @n@
+                                                 -> n Responder
+toResponder st act req runToN = do
+  ~(s,h,b) <- runToN (removeA <$> runRouteT act st req)
+  return $ respond s h (streamSimple b)
+  where removeA (_,s',h',b') = (fromMaybe status200 s',h',b')
+  
+{- Monadic actions -}
+
+-- TODO expose push function
 
 writeBody :: (WebAppState s, MonadIO m) => Builder -> RouteT s m ()
 writeBody builder = RouteT $ \_ _ -> return ((),Nothing,[],mkBody builder)

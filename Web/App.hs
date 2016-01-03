@@ -37,7 +37,6 @@ import Web.App.Middleware
 import Web.App.RouteMatching
 
 import Control.Monad.IO.Class
-import Network.Wai (Response)
 
 import Control.Applicative
 import Options.Applicative
@@ -70,7 +69,7 @@ webappMainIO = webappMain id
 
 -- | Read commandline arguments and start app accordingly. When passing an
 -- additional CLI parser, it is made available under the @util@ subcommand.
-webappMain :: (WebAppState s, MonadIO m) => (m Response -> IO Response) -- ^ action to eval a monadic computation in @m@ in @IO@
+webappMain :: (WebAppState s, MonadIO m) => (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
                                          -> WebAppT s m ()-- ScottyT e (WebAppM s) () -- ^ app to start
                                          -> String -- ^ CLI title/description
                                          -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
