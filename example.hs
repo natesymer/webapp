@@ -3,7 +3,9 @@ module Main (main) where
     
 import Web.App
 import Options.Applicative
+import Network.Wai
 import Network.HTTP.Types (Status(..))
+import Network.HTTP.Types.Method
 import Data.Text.Lazy (Text)
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Blaze.ByteString.Builder
@@ -43,6 +45,16 @@ app = do
   get (literal "/message") $ do
     writeBody "writeBody \"This is a subpath,\\n\"\n"
     writeBody "writeBody \"hear it roar!\""
+    
+  get (literal "/pushedpage") $ do
+    push methodGet "/image.png"
+    writeBody "<div>"
+    writeBody "<img src='/image.png'></img>"
+    writeBody "</div>"
+    
+  get (literal "/image.png") $ do
+    addHeader "Content-Type" "image/png"
+    (liftIO $ BL.readFile "image.png") >>= writeBody . fromLazyByteString
 
 data Util = Password String
   
