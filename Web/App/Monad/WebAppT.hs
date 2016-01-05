@@ -15,8 +15,7 @@ and using middleware.
 {-
 TODO
 
-* Errors!
-* HTTP2 & HTTP2 server push
+* Catch errors
 * HTTP params
 
 -}
@@ -35,6 +34,7 @@ module Web.App.Monad.WebAppT
 
 import Web.App.State
 import Web.App.Monad.RouteT
+import Web.App.Path
 
 import Control.Concurrent.STM
 
@@ -81,19 +81,19 @@ toApplication st respToIO act = do
       withMiddleware2 = mkApp2 st rts -- TODO add middleware
   return (withMiddleware2, withMiddleware)
   where
+    notFoundHeaders = [("Content-Type", "text/plain; charset=utf-8")]
     routePasses r (p,_) = p r
     mkApp tvar routes req callback = maybe notFound found $ find (routePasses req) routes
-      where notFound = callback $ responseLBS status404 [] "Not found."
-            found rt = (toResponse tvar (snd rt) req respToIO) >>= callback
+      where notFound = callback $ responseLBS status404 notFoundHeaders "Not found."
+            found rt = toResponse tvar (snd rt) req (LiteralPath []) respToIO >>= callback
     mkApp2 tvar routes req pushFunc = maybe notFound (found pushFunc) $ find (routePasses req) routes
-      where notFound    = respondNotFound []
-            found pf rt = respondIO $ toResponder tvar (snd rt) req pf routes respToIO
-      
+      where notFound    = respond status404 notFoundHeaders $ streamBuilder "Not found."
+            found pf rt = respondIO $ toResponder tvar (snd rt) routes req pf (LiteralPath []) respToIO
       
 -- |Use a middleware
 middleware :: (WebAppState s, Monad m) => Middleware -> WebAppT s m ()
 middleware m = WebAppT $ \r mw -> ((),r,mw ++ [m])
 
 -- |Define a route
-route :: (WebAppState s, Monad m) => Predicate -> RouteT s m () -> WebAppT s m ()
-route p act = WebAppT $ \r mw -> ((),r ++ [(p,act)],mw)
+route :: (WebAppState s, Monad m) => Predicate -> Path -> RouteT s m () -> WebAppT s m ()
+route p pth act = WebAppT $ \r mw -> ((),r ++ [(p,pth,act)],mw)

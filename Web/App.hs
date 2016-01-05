@@ -21,7 +21,9 @@ module Web.App
   module Web.App.Monad,
   module Web.App.Middleware,
   module Web.App.RouteMatching,
-  module Web.App.State
+  module Web.App.State,
+  module Web.App.Path,
+  module Web.App.Streaming
 )
 where
 
@@ -35,6 +37,8 @@ import Web.App.Monad
 import Web.App.State
 import Web.App.Middleware
 import Web.App.RouteMatching
+import Web.App.Path
+import Web.App.Streaming
 
 import Control.Monad.IO.Class
 

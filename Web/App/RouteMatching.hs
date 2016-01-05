@@ -12,7 +12,6 @@ module Web.App.RouteMatching
   patch,
   delete,
   options,
-  anyVerb,
   anyRequest
 )
 where
@@ -20,53 +19,58 @@ where
 import Web.App.Monad.WebAppT
 import Web.App.State
 import Web.App.Monad.RouteT
+import Web.App.Path
   
 import Network.Wai (Request(..))
 import Network.HTTP.Types.Method
 
 import Data.Text (Text)
-import qualified Data.Text as T
-import Text.Regex
-import qualified Data.ByteString.Char8 as B
-import Data.Maybe
+import qualified Data.Text.Encoding as T
+--
+-- -- |Predicate that matches a path.
+-- literal :: Text -- ^ the path to match
+--         -> Predicate
+-- literal p = \req -> (isRoot p) && (pathInfoEqual (pathInfo req) p)
+--
+-- captured :: Text -- ^ a capture path (e.g. /my/:parameter/this.json)
+--          -> Predicate
+-- captured p = \req -> capturedPathEqual (pathInfo req) p
+--
+-- -- |Predicate based on a regular expression.
+-- regex :: Text -- ^ a regex
+--       -> Predicate
+-- regex ex = \req -> regexPathEqual ex (T.decodeUtf8 $ rawPathInfo req)
 
-literal :: Text -> Request -> Bool
-literal path req
-  | T.head path == '/' = (T.intercalate "/" (pathInfo req)) == (T.tail path)
-  | otherwise = False
+{-# INLINE matchMethod #-}
+matchMethod :: Method -> Predicate
+matchMethod meth = \r -> (requestMethod r) == meth
 
-captured :: Text -> Request -> Bool
-captured path req
-  | T.head path == '/' = f (T.tail path) $ pathInfo req
-  | otherwise = False
-  where
-    f p [] = T.null p
-    f p (x:xs) = let (a,b) = T.splitAt (T.length x) p
-                 in a == x && f (T.drop 1 b) xs
+{- Monadic matchers -}
 
-regex :: Text -> Request -> Bool
-regex ex req = isJust $ matchRegex (mkRegex $ T.unpack ex) (B.unpack $ rawPathInfo req)
+-- |Match a `GET` request.
+get :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+get p act = route (matchMethod methodGet) p act
 
-get :: (WebAppState s, Monad m) => Predicate -> RouteT s m () -> WebAppT s m ()
-get p act = route (\r -> ((requestMethod r) == methodGet) && (p r)) act
+-- |Match a `POST` request.
+post :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+post p act = route (matchMethod methodPost) p act
 
-post :: (WebAppState s, Monad m) => Predicate -> RouteT s m () -> WebAppT s m ()
-post p act = route (\r -> ((requestMethod r) == methodPost) && (p r)) act
+-- |Match a `PUT` request.
+put :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+put p act = route (matchMethod methodPut) p act
 
-put :: (WebAppState s, Monad m) => Predicate -> RouteT s m () -> WebAppT s m ()
-put p act = route (\r -> ((requestMethod r) == methodPut) && (p r)) act
+-- |Match a `PATCH` request.
+patch :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+patch p act = route (matchMethod methodPatch) p act
 
-patch :: (WebAppState s, Monad m) => Predicate -> RouteT s m () -> WebAppT s m ()
-patch p act = route (\r -> ((requestMethod r) == methodPatch) && (p r)) act
+-- |Match a `DELETE` request.
+delete :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+delete p act = route (matchMethod methodDelete) p act
 
-delete :: (WebAppState s, Monad m) => Predicate -> RouteT s m () -> WebAppT s m ()
-delete p act = route (\r -> ((requestMethod r) == methodDelete) && (p r)) act
+-- |Match a `OPTIONS` request.
+options :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+options p act = route (matchMethod methodOptions) p act
 
-options :: (WebAppState s, Monad m) => Predicate -> RouteT s m () -> WebAppT s m ()
-options p act = route (\r -> ((requestMethod r) == methodOptions) && (p r)) act
-
-anyVerb :: (WebAppState s, Monad m) => Predicate -> RouteT s m () -> WebAppT s m ()
-anyVerb = route
-
+-- |Match any request.
 anyRequest :: (WebAppState s, Monad m) => RouteT s m () -> WebAppT s m ()
 anyRequest = route (const True)
