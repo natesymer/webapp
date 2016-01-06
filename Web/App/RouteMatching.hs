@@ -24,23 +24,6 @@ import Web.App.Path
 import Network.Wai (Request(..))
 import Network.HTTP.Types.Method
 
-import Data.Text (Text)
-import qualified Data.Text.Encoding as T
---
--- -- |Predicate that matches a path.
--- literal :: Text -- ^ the path to match
---         -> Predicate
--- literal p = \req -> (isRoot p) && (pathInfoEqual (pathInfo req) p)
---
--- captured :: Text -- ^ a capture path (e.g. /my/:parameter/this.json)
---          -> Predicate
--- captured p = \req -> capturedPathEqual (pathInfo req) p
---
--- -- |Predicate based on a regular expression.
--- regex :: Text -- ^ a regex
---       -> Predicate
--- regex ex = \req -> regexPathEqual ex (T.decodeUtf8 $ rawPathInfo req)
-
 {-# INLINE matchMethod #-}
 matchMethod :: Method -> Predicate
 matchMethod meth = \r -> (requestMethod r) == meth
@@ -72,5 +55,5 @@ options :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
 options p act = route (matchMethod methodOptions) p act
 
 -- |Match any request.
-anyRequest :: (WebAppState s, Monad m) => RouteT s m () -> WebAppT s m ()
+anyRequest :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
 anyRequest = route (const True)

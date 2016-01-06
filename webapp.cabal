@@ -34,7 +34,7 @@ Library
                      Web.App.Internal.TerminalSize
                      Web.App.RouteMatching
                      Web.App.Path
-                     Web.App.Streaming
+                     Web.App.Stream
   other-modules:     Web.App.Internal.IO
                      Web.App.Internal.Daemon
                      Web.App.Internal.Privileges

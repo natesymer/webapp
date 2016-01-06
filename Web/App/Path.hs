@@ -15,6 +15,7 @@ module Web.App.Path
   isRoot,
   splitPath,
   mkPathInfo,
+  joinPath,
   mkQueryDict,
   pathCaptures,
   regexPathCaptures,
@@ -56,8 +57,7 @@ regex = RegexPath . mkRegex . T.unpack
     
 -- |Returns @True@ if the given 'Path' matches the given 'PathInfo'
 pathMatches :: Path -> PathInfo -> Bool
-pathMatches (RegexPath ex) pin = isJust $ matchRegex ex path
-  where path = T.unpack $ mconcat $ "/":(intersperse "/" pin)
+pathMatches (RegexPath ex) pin = isJust $ matchRegex ex $ T.unpack $ joinPath pin
 pathMatches (LiteralPath pin) pin2 = pin == pin2
 pathMatches (CapturedPath pin) pin2 = f pin pin2
   where f [] [] = True
@@ -84,8 +84,13 @@ splitPath pth = (p,if T.null q then q else T.tail q)
 
 -- |Split @path@ into a pathInfo list.
 mkPathInfo :: Text -- ^ path
-           -> [Text]
+           -> PathInfo
 mkPathInfo = filter (not . T.null) . T.splitOn "/" . fst . splitPath
+
+-- |Join a PathInfo into a path.
+joinPath :: PathInfo -- ^ pathInfo
+         -> Text
+joinPath = mconcat . (:) "/" . intersperse "/"
 
 -- |Return an assoc list containing key-value pairs
 -- as expressed in @queryString@.
@@ -104,7 +109,7 @@ mkQueryDict pth
 {- Captures & Regex Captures -}
 
 -- |Returns the captures by comparing @path@ to @capturedPath@.
-pathCaptures :: [Text] -- ^ capturedPath
+pathCaptures :: PathInfo -- ^ capturedPath
              -> Text -- ^ path
              -> [(Text,Text)]
 pathCaptures cap pth = f [] cap $ mkPathInfo pth

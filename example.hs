@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TupleSections #-}
 module Main (main) where
     
 import Web.App
@@ -12,6 +12,8 @@ import Blaze.ByteString.Builder
 import Blaze.ByteString.Builder.Char.Utf8
 import Control.Monad.IO.Class
 
+import qualified Control.Monad.State.Class as S
+
 instance WebAppState Integer where
   initState = return 0
   destroyState st = do
@@ -23,36 +25,38 @@ main = webappMainIO app "My Web App" (Just parseUtil) handleUtil
 
 app :: WebAppT Integer IO ()
 app = do
-  get (literal "/") $ do
+  get "/" $ do
     addHeader "Content-Type" "text/plain"
-    getState >>= writeBody . fromString . show
+    S.get >>= writeBody . fromString . show
 
-  get (literal "/add") $ do
-    modifyState ((+) 1)
+  get "/add" $ do
+    S.state (((),) . (+) 1)
     status $ Status 302 ""
     addHeader "Location" "/"
     
-  get (literal "/subtract") $ do
-    modifyState ((-) 1)
+  get "/subtract" $ do
+    S.state (((),) . (-) 1)
     status $ Status 302 ""
     addHeader "Location" "/"
 
-  get (literal "/reset") $ do
-    setState 0
+  get "/reset" $ do
+    S.put 0
     status $ Status 302 ""
     addHeader "Location" "/"
     
-  get (literal "/message") $ do
+  get "/message" $ do
     writeBody "writeBody \"This is a subpath,\\n\"\n"
     writeBody "writeBody \"hear it roar!\""
     
-  get (literal "/pushedpage") $ do
+  get "/pushedpage" $ do
+    liftIO $ putStrLn "pushedpage"
+    addHeader "Content-Type" "text/html"
     push methodGet "/image.png"
     writeBody "<div>"
     writeBody "<img src='/image.png'></img>"
     writeBody "</div>"
     
-  get (literal "/image.png") $ do
+  get "/image.png" $ do
     addHeader "Content-Type" "image/png"
     (liftIO $ BL.readFile "image.png") >>= writeBody . fromLazyByteString
 
