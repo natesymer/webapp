@@ -18,6 +18,7 @@ module Web.App.Monad.RouteT
   addHeader,
   status,
   headers,
+  redirect,
   params,
   bodyReader,
   body,
@@ -182,6 +183,11 @@ addHeader k v = RouteT $ \_ _ _ _ -> return ((),Nothing,[(k,v)],Nothing)
 -- |Set the HTTP status.
 status :: (WebAppState s, Monad m) => Status -> RouteT s m ()
 status s = RouteT $ \_ _ _ _ -> return ((),Just s,[],Nothing)
+
+-- |Redirect to the given path using a @Location@ header and
+-- an HTTP status of 302. Route evaluation continues.
+redirect :: (WebAppState s, Monad m) => Text -> RouteT s m ()
+redirect path = addHeader "Location" path >> status status302
 
 -- |Get the request's headers.
 headers :: (WebAppState s, Monad m) => RouteT s m RequestHeaders

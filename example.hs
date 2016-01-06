@@ -31,25 +31,21 @@ app = do
 
   get "/add" $ do
     S.state (((),) . (+) 1)
-    status $ Status 302 ""
-    addHeader "Location" "/"
+    redirect "/"
     
   get "/subtract" $ do
     S.state (((),) . (-) 1)
-    status $ Status 302 ""
-    addHeader "Location" "/"
+    redirect "/"
 
   get "/reset" $ do
     S.put 0
-    status $ Status 302 ""
-    addHeader "Location" "/"
+    redirect "/"
     
   get "/message" $ do
     writeBody "writeBody \"This is a subpath,\\n\"\n"
     writeBody "writeBody \"hear it roar!\""
     
   get "/pushedpage" $ do
-    liftIO $ putStrLn "pushedpage"
     addHeader "Content-Type" "text/html"
     push methodGet "/image.png"
     writeBody "<div>"
