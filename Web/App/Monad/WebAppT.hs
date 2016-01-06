@@ -30,6 +30,13 @@ module Web.App.Monad.WebAppT
   toApplication,
   middleware,
   route,
+  get,
+  post,
+  put,
+  patch,
+  delete,
+  options,
+  anyRequest
 ) where
 
 import Web.App.State
@@ -43,6 +50,7 @@ import Control.Concurrent.STM
 import Network.Wai
 import Network.Wai.HTTP2
 import Network.HTTP.Types.Status (status404)
+import Network.HTTP.Types.Method
 
 -- |Monad for defining routes & adding middleware.
 newtype WebAppT s m a = WebAppT {
@@ -71,22 +79,22 @@ instance (WebAppState s, Monad m) => Monad (WebAppT s m) where
   fail msg = WebAppT $ \_ _ -> error msg
 
 -- |Turn a WebAppT computation into a WAI 'Application'.
-toApplication :: (WebAppState s, MonadIO m, Monad n)
-              => TVar s -- ^ initial state
-              -> (m RouteResult -> IO RouteResult) -- ^ fnc eval a monadic computation in @m@ in @IO@
+toApplication :: (WebAppState s, MonadIO m, MonadIO n)
+              => (m RouteResult -> IO RouteResult) -- ^ fnc eval a monadic computation in @m@ in @IO@
               -> WebAppT s m () -- ^ a web app
-              -> n (HTTP2Application, Application) -- ^ resulting 'Application'
-toApplication st runToIO webapp = do
+              -> n (HTTP2Application, Application, TVar s) -- ^ resulting 'Application'
+toApplication runToIO webapp = do
+  st <- liftIO $ newTVarIO =<< initState
   let ~(_,rts,mws) = runWebAppT webapp [] []
       withMiddleware = foldl (flip ($)) (mkApp st rts) mws
       withMiddleware2 = mkApp2 st rts -- TODO add middleware
-  return (withMiddleware2, withMiddleware)
+  return (withMiddleware2, withMiddleware, st)
   where
     notFoundHeaders = [("Content-Type", "text/plain; charset=utf-8")]
     mkApp tvar routes req callback = case findRoute routes req of
       Nothing -> callback $ responseLBS status404 notFoundHeaders "Not found."
       Just (_,pth,act) -> do
-        (s,h,b) <- runToIO $ evalRouteT act tvar pth (const $ return False) req
+        (s,h,b) <- runToIO $ evalRouteT act tvar pth nullPushFunc req
         callback $ responseStream s h $ runStream b
         
     mkApp2 tvar routes req pushFunc = case findRoute routes req of
@@ -103,3 +111,37 @@ middleware m = WebAppT $ \r mw -> ((),r,mw ++ [m])
 -- |Define a route
 route :: (WebAppState s, Monad m) => Predicate -> Path -> RouteT s m () -> WebAppT s m ()
 route p pth act = WebAppT $ \r mw -> ((),r ++ [(p,pth,act)],mw)
+
+{-# INLINE matchMethod #-}
+matchMethod :: Method -> Predicate
+matchMethod meth = \r -> (requestMethod r) == meth
+
+{- Monadic matchers -}
+
+-- |Match a `GET` request.
+get :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+get p act = route (matchMethod methodGet) p act
+
+-- |Match a `POST` request.
+post :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+post p act = route (matchMethod methodPost) p act
+
+-- |Match a `PUT` request.
+put :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+put p act = route (matchMethod methodPut) p act
+
+-- |Match a `PATCH` request.
+patch :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+patch p act = route (matchMethod methodPatch) p act
+
+-- |Match a `DELETE` request.
+delete :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+delete p act = route (matchMethod methodDelete) p act
+
+-- |Match a `OPTIONS` request.
+options :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+options p act = route (matchMethod methodOptions) p act
+
+-- |Match any request.
+anyRequest :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
+anyRequest = route (const True)

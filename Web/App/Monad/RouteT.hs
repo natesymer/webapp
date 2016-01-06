@@ -3,13 +3,15 @@
 module Web.App.Monad.RouteT
 (
   -- * RouteT monad transformer
-  RouteT(..),
+  RouteT,
   evalRouteT,
   -- * Additional Types
   RouteResult,
   Predicate,
   Route,
+  -- * Routing convenience functions
   wrapPushFunc,
+  nullPushFunc,
   findRoute,
   -- * Monadic actions
   push,
@@ -48,6 +50,7 @@ import Network.HTTP.Types.Method
 
 import Data.Maybe
 import Data.List
+import Data.Monoid
 
 import System.IO.Unsafe
 
@@ -67,7 +70,8 @@ type RouteResult = (Status, ResponseHeaders, Stream) -- kind of like a Ruby Rack
 -- in this monad transformer.
 newtype RouteT s m a = RouteT {
   runRouteT :: (TVar s) -- ^ tvar containing state
-            -> Path -- ^ Path of route
+            -> Path -- ^ path of route
+            -> TVar BL.ByteString -- ^ body of request
             -> WrappedPushFunc s m -- ^ HTTP/2 server push function; Does nothing for HTTP/1.1 or HTTP/1
             -> Request -- ^ request being served
             -> m (a, Maybe Status, ResponseHeaders, Maybe Stream)
@@ -77,54 +81,62 @@ newtype RouteT s m a = RouteT {
 evalRouteT :: (WebAppState s, MonadIO m)
            => RouteT s m () -- ^ route to evaluate
            -> (TVar s) -- ^ tvar containing state
-           -> Path -- ^ Path of route
-           -> WrappedPushFunc s m -- ^ HTTP2 server push function; 'Nothing' when over HTTP1
+           -> Path -- ^ path of route
+           -> WrappedPushFunc s m -- ^ wrapped HTTP/2 server push function
            -> Request -- ^ request being served
            -> m RouteResult
-evalRouteT act st pth pf req = fmap removeA $ runRouteT act st pth pf req
-  where removeA (_,s,h,b) = (fromMaybe status200 s,h,fromMaybe mempty b)
+evalRouteT act st pth pf req = do
+  bdy <- liftIO $ newTVarIO BL.Empty
+  (_,s,h,b) <- runRouteT act st pth bdy pf req
+  return (fromMaybe status200 s,h,fromMaybe mempty b)
 
 instance (WebAppState s, Functor m) => Functor (RouteT s m) where
-  fmap f m = RouteT $ \st pth pf req -> fmap (\(a,s,h,b) -> (f a,s,h,b)) $ runRouteT m st pth pf req
+  fmap f m = RouteT $ \st pth bdy pf req -> fmap (\(a,s,h,b) -> (f a,s,h,b)) $ runRouteT m st pth bdy pf req
   
 instance (WebAppState s, Monad m) => Applicative (RouteT s m) where
-  pure a = RouteT $ \_ _ _ _ -> return (a,Nothing,[],Nothing)
+  pure a = RouteT $ \_ _ _ _ _ -> return (a,Nothing,[],Nothing)
   (<*>) = ap
 
 instance (WebAppState s, Monad m) => Monad (RouteT s m) where
-  fail msg = RouteT $ \_ _ _ _ -> fail msg
-  m >>= k = RouteT $ \st pth pf req -> do
-    ~(x, s, h, b) <- runRouteT m st pth pf req
-    ~(y, s', h', b') <- runRouteT (k x) st pth pf req
+  fail msg = RouteT $ \_ _ _ _ _ -> fail msg
+  m >>= k = RouteT $ \st pth bdy pf req -> do
+    ~(x, s, h, b) <- runRouteT m st pth bdy pf req
+    ~(y, s', h', b') <- runRouteT (k x) st pth bdy pf req
     return (y, s' <|> s, h ++ h', mappend b b')
       
 instance (WebAppState s) => MonadTrans (RouteT s) where
-  lift m = RouteT $ \_ _ _ _ -> m >>= return . (,Nothing,[],Nothing)
+  lift m = RouteT $ \_ _ _ _ _ -> m >>= return . (,Nothing,[],Nothing)
 
 instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
   liftIO = lift . liftIO
   
 instance (WebAppState s, MonadIO m) => MonadState s (RouteT s m) where
-  get = RouteT $ \st _ _ _ -> (,Nothing,[],Nothing) <$> (liftIO $ atomically $ readTVar st)
-  put v = RouteT $ \st _ _ _ -> (,Nothing,[],Nothing) <$> (liftIO $ atomically $ writeTVar st v)
+  get = RouteT $ \st _ _ _ _ -> (,Nothing,[],Nothing) <$> (liftIO $ atomically $ readTVar st)
+  put v = RouteT $ \st _ _ _ _ -> (,Nothing,[],Nothing) <$> (liftIO $ atomically $ writeTVar st v)
 
-instance (WebAppState s, MonadIO m) => MonadWriter Stream (RouteT s m) where
-  tell s = RouteT $ \_ _ _ _ -> return ((),Nothing,[],Just s)
-  listen act = RouteT $ \st pth pf req -> do
-    (a,_,_,mw) <- runRouteT act st pth pf req
+instance (WebAppState s, Monad m) => MonadWriter Stream (RouteT s m) where
+  tell s = RouteT $ \_ _ _ _ _ -> return ((),Nothing,[],Just s)
+  listen act = RouteT $ \st pth bdy pf req -> do
+    (a,_,_,mw) <- runRouteT act st pth bdy pf req
     return ((a,fromMaybe mempty mw),Nothing,[],Nothing)
-  pass act = RouteT $ \st pth pf req -> do
-    ((a,f),_,_,mw) <- runRouteT act st pth pf req
+  pass act = RouteT $ \st pth bdy pf req -> do
+    ((a,f),_,_,mw) <- runRouteT act st pth bdy pf req
     return (a,Nothing,[],maybe mempty (Just . f) mw)
   
 {- Route Evaluation -}
   
+-- |A 'WrappedPushFunc' that does nothing. For use in situations
+-- that don't support HTTP/2 Server Push
+nullPushFunc :: (WebAppState s, Monad m) => WrappedPushFunc s m
+nullPushFunc = const $ return False
+
+-- |Wrap a 'PushFunc' in 'RouteT' and a list of 'Route's.
 wrapPushFunc :: (WebAppState s, MonadIO m)
              => PushFunc -- ^ wai 'PushFunc' to wrap
              -> [Route s m] -- ^ routes that can be pushed
              -> WrappedPushFunc s m
 wrapPushFunc pf rts = f
-  where f req = RouteT $ \st _ _ _ -> do
+  where f req = RouteT $ \st _ _ _ _ -> do
           case findRoute rts req of
             Nothing -> return (False,Nothing,[],Nothing)
             Just (_,pth,act) -> do
@@ -149,45 +161,42 @@ push :: (WebAppState s, MonadIO m)
      -> ByteString -- ^ path of resource
      -> RouteT s m Bool
 push meth rpth = do
-  (pf,req) <- RouteT $ \_ _ pf req -> return ((pf,req),Nothing,[],Nothing)
-  res <- pf $ pushReq req
-  return res
-  where (pInfo,pQuery) = splitPath $ T.decodeUtf8 rpth
-        pushReq req = req {
-          requestMethod = meth,
-          rawPathInfo = T.encodeUtf8 pInfo,
-          rawQueryString = T.encodeUtf8 pQuery,
-          pathInfo = mkPathInfo pInfo,
-          queryString = mkQueryDict pQuery,
-          requestBody = return B.empty,
-          requestBodyLength = KnownLength 0,
-          requestHeaderRange = Nothing,
-          requestHeaders = [] -- should headers be left intact?
-        }
+  let (pInfo,pQuery) = splitPath $ T.decodeUtf8 rpth
+  (pf,req) <- RouteT $ \_ _ _ pf req -> return ((pf,req),Nothing,[],Nothing)
+  pf $ req {
+    requestMethod = meth,
+    rawPathInfo = T.encodeUtf8 pInfo,
+    rawQueryString = T.encodeUtf8 pQuery,
+    pathInfo = mkPathInfo pInfo,
+    queryString = mkQueryDict pQuery,
+    requestBody = return B.empty,
+    requestBodyLength = KnownLength 0,
+    requestHeaderRange = Nothing,
+    requestHeaders = []} -- should headers be left intact?
 
 -- |Write a builder to the response body.
 writeBody :: (WebAppState s, Monad m)
           => Builder -- ^ builder to write
           -> RouteT s m ()
-writeBody builder = RouteT $ \_ _ _ _ ->
+writeBody builder = RouteT $ \_ _ _ _ _ ->
   return ((),Nothing,[],Just $ stream builder)
-  
+
 -- |Get the 'Request' being served.
 request :: (WebAppState s, Monad m) => RouteT s m Request
-request = RouteT $ \_ _ _ req -> return (req,Nothing,[],Nothing)
+request = RouteT $ \_ _ _ _ req -> return (req,Nothing,[],Nothing)
 
 -- |Add an HTTP header.
 addHeader :: (WebAppState s, Monad m) => HeaderName -> ByteString -> RouteT s m ()
-addHeader k v = RouteT $ \_ _ _ _ -> return ((),Nothing,[(k,v)],Nothing)
+addHeader k v = RouteT $ \_ _ _ _ _ -> return ((),Nothing,[(k,v)],Nothing)
 
 -- |Set the HTTP status.
 status :: (WebAppState s, Monad m) => Status -> RouteT s m ()
-status s = RouteT $ \_ _ _ _ -> return ((),Just s,[],Nothing)
+status s = RouteT $ \_ _ _ _ _ -> return ((),Just s,[],Nothing)
 
 -- |Redirect to the given path using a @Location@ header and
 -- an HTTP status of 302. Route evaluation continues.
-redirect :: (WebAppState s, Monad m) => Text -> RouteT s m ()
-redirect path = addHeader "Location" path >> status status302
+redirect :: (WebAppState s, Monad m) => ByteString -> RouteT s m ()
+redirect p = addHeader "Location" p >> status status302
 
 -- |Get the request's headers.
 headers :: (WebAppState s, Monad m) => RouteT s m RequestHeaders
@@ -197,13 +206,27 @@ headers = fmap requestHeaders request
 params :: (WebAppState s, Monad m) => RouteT s m Query
 params = fmap queryString request
 
--- |Get an action to read a chunk from the HTTP response body.
-bodyReader :: (WebAppState s, Monad m) => RouteT s m (IO ByteString)
-bodyReader = fmap requestBody request
+-- |Get an action that reads a chunk from the HTTP body. Can be used
+-- before 'body'
+bodyReader :: (WebAppState s, MonadIO m) => RouteT s m (IO ByteString)
+bodyReader = RouteT $ \_ _ bdy _ req ->
+  return (act bdy (requestBody req),Nothing,[],Nothing)
+  where
+    act tv f = unsafeInterleaveIO $ do
+      c <- f
+      atomically $ readTVar tv >>= writeTVar tv . BL.Chunk c
+      return c
 
--- |Get the body as a lazy byteString
+-- |Get the body as a lazy byteString. Can be used after
+-- reading individual chunks from the HTTP body.
 body :: (WebAppState s, MonadIO m) => RouteT s m BL.ByteString
-body = bodyReader >>= liftIO . lazyRead
+body = RouteT $ \_ _ bdy _ req -> liftIO $ do
+  remainder <- lazyRead $ requestBody req
+  atomically $ do
+    alreadyRead <- readTVar bdy
+    let whole = alreadyRead <> remainder
+    writeTVar bdy whole
+    return (whole,Nothing,[],Nothing)
   where
     lazyRead f = unsafeInterleaveIO $ do
       c <- f
@@ -215,4 +238,4 @@ urlencodedBody :: (WebAppState s, MonadIO m) => RouteT s m Query
 urlencodedBody = (mkQueryDict . T.decodeUtf8 . BL.toStrict) <$> body
 
 path :: (WebAppState s, Monad m) => RouteT s m Path
-path = RouteT $ \_ pth _ _ -> return (pth,Nothing,[],Nothing)
+path = RouteT $ \_ pth _ _ _ -> return (pth,Nothing,[],Nothing)

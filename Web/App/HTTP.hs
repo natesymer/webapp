@@ -70,8 +70,7 @@ serveApp :: (WebAppState s, MonadIO m) => (Settings -> HTTP2Application -> Appli
                                        -> [Middleware] -- ^ middleware to add to the app
                                        -> IO ()
 serveApp serve runToIO app port middlewares = do
-  st <- newTVarIO =<< initState
-  (wai2, wai) <- toApplication st runToIO $ do
+  (wai2, wai, st) <- toApplication runToIO $ do
     mapM_ middleware middlewares
     app
   serve (warpSettings st) wai2 wai

@@ -55,6 +55,10 @@ app = do
   get "/image.png" $ do
     addHeader "Content-Type" "image/png"
     (liftIO $ BL.readFile "image.png") >>= writeBody . fromLazyByteString
+    
+  post "/echobody" $ do
+    body >>= writeBody . fromLazyByteString
+    body >>= liftIO . print
 
 data Util = Password String
   

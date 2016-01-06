@@ -19,10 +19,9 @@ Extra-source-files:
     CHANGELOG.md
 
 Library
-  build-tools:       hsc2hs, happy >= 1.19, alex >= 3.1.4
+  build-tools:       hsc2hs
   ghc-options:       -Wall
   Exposed-modules:   Web.App
-                     Web.App.Cookie
                      Web.App.HTTP
                      Web.App.State
                      Web.App.Monad
@@ -31,10 +30,10 @@ Library
                      Web.App.Middleware
                      Web.App.Middleware.Gzip
                      Web.App.Middleware.ForceSSL
-                     Web.App.Internal.TerminalSize
-                     Web.App.RouteMatching
                      Web.App.Path
                      Web.App.Stream
+                     Web.App.Main
+                     Web.App.Internal.TerminalSize
   other-modules:     Web.App.Internal.IO
                      Web.App.Internal.Daemon
                      Web.App.Internal.Privileges
