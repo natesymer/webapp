@@ -61,10 +61,11 @@ app = do
     body >>= liftIO . print
     
   get "/fallthrough" $ do
+    liftIO $ putStrLn "falling through..."
     next
 
   get (regex ".*") $ do
-    writeBody "fell through"
+    writeBody "fell through!"
 
 data Util = Password String
   

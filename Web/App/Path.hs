@@ -1,3 +1,14 @@
+{-|
+Module      : Web.App.Path
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
+
+A URI pathInfo wrapper.
+-}
+
 {-# LANGUAGE OverloadedStrings #-}
 
 module Web.App.Path
@@ -46,12 +57,15 @@ instance IsString Path where
             Just _ -> CapturedPath pinfo
             Nothing -> LiteralPath pinfo
       
+-- |Construct a literal 'Path'.
 literal :: Text -> Path
 literal = LiteralPath . mkPathInfo
 
+-- |Construct a captured 'Path'.
 captured :: Text -> Path
 captured = CapturedPath . mkPathInfo
 
+-- |Construct a regex 'Path'.
 regex :: Text -> Path
 regex = RegexPath . mkRegex . T.unpack
     

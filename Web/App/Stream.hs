@@ -1,4 +1,14 @@
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+{-|
+Module      : Web.App.Stream
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
+
+@newtype@ wrapper around a WAI 'StreamingBody'.
+-}
+
 module Web.App.Stream
 (
   Stream(..),
@@ -13,9 +23,6 @@ import Data.String
 
 -- |An HTTP response body stream.
 newtype Stream = Stream { runStream :: StreamingBody }
-
-instance Show Stream where
-  show = const "<Stream>"
   
 instance IsString Stream where
   fromString = stream . fromByteString . B.pack
@@ -24,7 +31,7 @@ instance Monoid Stream where
   mempty = Stream $ \_ _ -> return ()
   mappend (Stream a) (Stream b) = Stream $ \w f -> a w f >> b w f
   
--- TODO: Monad classes?
+-- TODO: Functor, Applicative, and Monad classes?
 
 -- |Stream a Blaze ByteString Builder.
 stream :: Builder -> Stream

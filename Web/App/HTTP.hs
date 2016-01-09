@@ -27,7 +27,6 @@ import Web.App.State
 
 import Control.Monad
 import Control.Monad.IO.Class
-import Control.Concurrent.STM
 
 import Network.Wai (Application,Middleware)
 import Network.Wai.HTTP2 (HTTP2Application)
@@ -42,20 +41,22 @@ import System.Exit
 import System.Posix
 
 -- |Start an insecure HTTP server.
-startHTTP :: (WebAppState s, MonadIO m) => WebAppT s m () -- ^ Scotty app to serve
-                                        -> (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
-                                        -> Int -- ^ Port to which to bind
-                                        -> IO ()
-startHTTP app runToIO port = serveApp (runHTTP2Settings) runToIO app port [gzip 860]
+startHTTP :: (WebAppState s, MonadIO m)
+          => WebAppT s m () -- ^ Scotty app to serve
+          -> (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
+          -> Int -- ^ Port to which to bind
+          -> IO ()
+startHTTP app runToIO port = serveApp runHTTP2Settings runToIO app port [gzip 860]
 
 -- |Start a secure HTTPS server. Please note that most HTTP/2-compatible browswers
 -- require HTTPS in order to upgrade to HTTP/2.
-startHTTPS :: (WebAppState s, MonadIO m) => WebAppT s m () -- ^ Scotty app to serve
-                                         -> (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
-                                         -> Int -- ^ Port to which to bind
-                                         -> FilePath -- ^ 'FilePath' to an SSL certificate
-                                         -> FilePath -- ^ 'FilePath' to an SSL private key
-                                         -> IO ()
+startHTTPS :: (WebAppState s, MonadIO m)
+           => WebAppT s m () -- ^ Scotty app to serve
+           -> (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
+           -> Int -- ^ Port to which to bind
+           -> FilePath -- ^ 'FilePath' to an SSL certificate
+           -> FilePath -- ^ 'FilePath' to an SSL private key
+           -> IO ()
 startHTTPS app runToIO port cert key = serveApp serve runToIO app port mw
   where mw = [gzip 860, forceSSL]
         serve = runHTTP2TLSHandled tlsset
@@ -63,31 +64,34 @@ startHTTPS app runToIO port cert key = serveApp serve runToIO app port mw
 
 {- Internal -}
 
-serveApp :: (WebAppState s, MonadIO m) => (Settings -> HTTP2Application -> Application -> IO ()) -- ^ fnc to serve resulting app
-                                       -> (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
-                                       -> WebAppT s m () -- ^ app to serve
-                                       -> Int -- ^ port to serve on
-                                       -> [Middleware] -- ^ middleware to add to the app
-                                       -> IO ()
+-- |Serves a @'WebAppT' s m ()@ given a serving function, "dropping"
+-- function @(m 'RouteResult' -> 'IO' 'RouteResult')@, port, and middlewares.
+serveApp :: (WebAppState s, MonadIO m)
+         => (Settings -> HTTP2Application -> Application -> IO ()) -- ^ serving function
+         -> (m RouteResult -> IO RouteResult) -- ^ "dropping" function
+         -> WebAppT s m () -- ^ app to serve
+         -> Int -- ^ port to serve on
+         -> [Middleware] -- ^ middleware to add to the app
+         -> IO ()
 serveApp serve runToIO app port middlewares = do
-  (wai2, wai, st) <- toApplication runToIO $ do
+  (wai2, wai, teardown) <- toApplication runToIO $ do
     mapM_ middleware middlewares
     app
-  serve (warpSettings st) wai2 wai
+  serve (warpSettings teardown) wai2 wai
   where
-    warpSettings tvar = setBeforeMainLoop before
-                        $ setInstallShutdownHandler (installShutdown tvar)
-                        $ setPort port defaultSettings
+    warpSettings td = setBeforeMainLoop before
+                      $ setInstallShutdownHandler (installShutdown td)
+                      $ setPort port defaultSettings
     before = resignPrivileges "daemon"
-    installShutdown tvar killSockets = do
-      void $ installHandler sigTERM (handler tvar killSockets) Nothing
-      void $ installHandler sigINT (handler tvar killSockets) Nothing
-    handler tvar killSockets = Catch $ do
+    installShutdown teardown killSockets = do
+      void $ installHandler sigTERM (handler teardown killSockets) Nothing
+      void $ installHandler sigINT (handler teardown killSockets) Nothing
+    handler teardown killSockets = Catch $ do
       void $ killSockets
-      readTVarIO tvar >>= destroyState
+      void $ teardown
       exitImmediately ExitSuccess
 
--- | Serve an HTTP2 application over TLS, obeying 'settingsInstallShutdownHandler'.
+-- |Serve an HTTP2 application over TLS, obeying 'settingsInstallShutdownHandler'.
 -- This setting is ignored in WarpTLS due to a bug (gasp!). See
 -- https://github.com/yesodweb/wai/issues/483
 runHTTP2TLSHandled :: TLSSettings -> Settings -> HTTP2Application -> Application -> IO ()

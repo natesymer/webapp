@@ -76,23 +76,23 @@ wait secs pid = (when <$> pidLive pid) >>= \w -> w f
             putStrLn $ "force killing PID " ++ (show pid)
             signalProcess sigKILL pid
 
-{- Write the process's PID to a file -}
+-- |Write the process's PID to a file
 pidWrite :: FilePath -> IO ()
 pidWrite pidPath = getProcessID >>= writeFile pidPath . show
 
-{- Read a PID from a file -}
+-- |Read a PID from a file
 pidRead :: FilePath -> IO (Maybe CPid)
 pidRead pidFile = fileExist pidFile >>= f where
   f True  = fmap (Just . read) . readFile $ pidFile
   f False = return Nothing
 
-{- Determine if a PID is live -}
+-- |Determine if a PID is live
 pidLive :: CPid -> IO Bool
 pidLive pid = (getProcessPriority pid >> return True) `catch` f where
   f :: IOException -> IO Bool
   f _ = return False
   
-{- Kill a PID from a file with a timeout -}
+-- |Kill a PID from a file with a timeout
 pidKill :: Int -> FilePath -> IO ()
 pidKill timeout pidFile = fileExist pidFile >>= f
   where

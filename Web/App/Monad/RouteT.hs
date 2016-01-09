@@ -1,4 +1,16 @@
-{-# LANGUAGE OverloadedStrings, TupleSections, FlexibleInstances, MultiParamTypeClasses, UndecidableInstances #-}
+{-|
+Module      : Web.App.Monad.WebAppT
+Copyright   : (c) Nathaniel Symer, 2015
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
+
+Defines a monad transformer used for defining routes
+and using middleware.
+-}
+
+{-# LANGUAGE OverloadedStrings, TupleSections, FlexibleInstances, MultiParamTypeClasses #-}
 
 module Web.App.Monad.RouteT
 (
@@ -69,7 +81,13 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Text.Encoding as T
 
-import Debug.Trace
+{-
+TODO
+
+  * Allow 'InterruptNext' to carry state into
+    the evaluation of the next route.
+
+-}
            
 type Predicate = Request -> Bool -- ^ Used to determine if a route can handle a request
 type Route s m = (Predicate, Path, RouteT s m ()) 
@@ -78,14 +96,15 @@ type RouteResult = Maybe (Status, ResponseHeaders, Stream) -- kind of like a Rub
 
 data RouteInterrupt = InterruptNext -- ^ halt current route evaluation and start evaluating next route
                     | InterruptHalt (Maybe Status) ResponseHeaders (Maybe Stream) -- ^ halt & provide a response
-                    deriving (Show)
-           
--- |RouteT monad transformer. All routes are evaluated
--- in this monad transformer.
+
+-- |Monad transformer in which routes are evaluated. It's essentially
+-- an ExceptT crossed with an RWST with the path, body, and push func
+-- as the "Reader" state, the response as the "Writer" state, and no
+-- "State" state.
 newtype RouteT s m a = RouteT {
-  runRouteT :: (TVar s) -- ^ tvar containing state
+  runRouteT :: TVar s -- ^ tvar containing state
             -> Path -- ^ path of route
-            -> TVar BL.ByteString -- ^ body of request
+            -> TVar BL.ByteString -- ^ request body
             -> WrappedPushFunc s m -- ^ HTTP/2 server push function; Does nothing for HTTP/1.1 or HTTP/1
             -> Request -- ^ request being served
             -> m (Either RouteInterrupt (a, Maybe Status, ResponseHeaders, Maybe Stream))
@@ -94,7 +113,7 @@ newtype RouteT s m a = RouteT {
 -- |Evaluate a 'RouteT' action into a 'RouteResult'.
 evalRouteT :: (WebAppState s, MonadIO m)
            => RouteT s m () -- ^ route to evaluate
-           -> (TVar s) -- ^ tvar containing state
+           -> TVar s -- ^ tvar containing state
            -> Path -- ^ path of route
            -> WrappedPushFunc s m -- ^ wrapped HTTP/2 server push function
            -> Request -- ^ request being served
@@ -116,9 +135,7 @@ instance (WebAppState s, Functor m) => Functor (RouteT s m) where
 instance (WebAppState s, Monad m) => Applicative (RouteT s m) where
   pure a = RouteT $ \_ _ _ _ _ -> return $ Right (a,Nothing,[],Nothing)
   (<*>) = ap
-  
--- TODO: fixme
--- redirect url = status status302 >>= \_ -> (addHeader "Location" url >>= \_ -> halt')
+
 instance (WebAppState s, Monad m) => Monad (RouteT s m) where
   fail msg = RouteT $ \_ _ _ _ _ -> fail msg
   m >>= k = RouteT $ \st pth bdy pf req -> do
@@ -256,20 +273,17 @@ status s = RouteT $ \_ _ _ _ _ -> return $ Right ((),Just s,[],Nothing)
 -- |Redirect to the given path using a @Location@ header and
 -- an HTTP status of 302. Route evaluation continues.
 redirect :: (WebAppState s, MonadIO m) => ByteString -> RouteT s m ()
-redirect url = do
-  status status302
-  addHeader "Location" url
-  halt'
--- redirect :: (WebAppState s, MonadIO m) => ByteString -> RouteT s m ()
--- redirect url = status status302 >>= \_ -> (addHeader "Location" url >>= \_ -> halt')
-
--- |Get the request's headers.
+redirect url = halt status302 [("Location",url)] mempty
+  
+-- |Get the 'Request''s headers.
 headers :: (WebAppState s, Monad m) => RouteT s m RequestHeaders
 headers = requestHeaders <$> request
 
+-- |Get a specific header.
 header :: (WebAppState s, Monad m) => ByteString -> RouteT s m (Maybe ByteString)
 header k = lookup (mk k) <$> headers
 
+-- |Get the 'Request''s parameters (in order captures, HTTP body, URI query).
 params :: (WebAppState s, MonadIO m) => RouteT s m Query
 params = fmap (mconcat . catMaybes) $ sequence [cap,bdy,q]
   where
@@ -284,14 +298,11 @@ params = fmap (mconcat . catMaybes) $ sequence [cap,bdy,q]
         Nothing -> return Nothing
     q = Just . queryString <$> request
 
+-- |Get a specific header. Will call 'next' if the parameter isn't present.
 param :: (WebAppState s, MonadIO m, Read a) => ByteString -> RouteT s m a
-param k = do
-  mv <- fmap (fromMaybe "") . lookup k <$> params
-  case mv of
-    Nothing -> do
-      next
-      return $ read "" -- satisfy type checker
-    Just v -> return $ read $ B.unpack v
+param k = params >>= f . fmap (fromMaybe "") . lookup k
+  where f (Just v) = return $ read $ B.unpack v
+        f Nothing = next >> (return $ read "")
 
 -- |Get an action that reads a chunk from the HTTP body. Can be used
 -- before 'body'. A chunk is not read until it's needed (non-strictness).

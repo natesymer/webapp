@@ -21,6 +21,7 @@ import Data.Maybe (fromJust)
 import Data.Monoid
 import Network.HTTP.Types.Status (status301)
 
+-- |Middleware to force SSL traffic.
 forceSSL :: Middleware
 forceSSL app = \req respond -> if isSecure req
   then app req respond

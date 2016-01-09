@@ -1,5 +1,3 @@
-{-# LANGUAGE OverloadedStrings, TupleSections #-}
-
 {-|
 Module      : Web.App.Monad.WebAppT
 Copyright   : (c) Nathaniel Symer, 2015
@@ -12,15 +10,7 @@ Defines a monad transformer used for defining routes
 and using middleware.
 -}
 
-{-
-TODO
-
-* Catch errors
-* HTTP params
-
--}
-
-{-# LANGUAGE TupleSections, Rank2Types #-}
+{-# LANGUAGE OverloadedStrings, TupleSections #-}
 
 module Web.App.Monad.WebAppT
 (
@@ -47,8 +37,6 @@ import Web.App.Stream
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Concurrent.STM
-
-import Data.Maybe
 
 import Network.Wai
 import Network.Wai.HTTP2
@@ -81,13 +69,16 @@ instance (WebAppState s, Monad m) => Monad (WebAppT s m) where
 toApplication :: (WebAppState s, MonadIO m, MonadIO n)
               => (m RouteResult -> IO RouteResult) -- ^ fnc eval a monadic computation in @m@ in @IO@
               -> WebAppT s m () -- ^ a web app
-              -> n (HTTP2Application, Application, TVar s) -- ^ resulting 'Application'
+              -> n (HTTP2Application, -- ^ HTTP2 WAI application
+                    Application, -- ^ HTTP/1.1 WAI application
+                    IO ()) -- ^ teardown action; safely tears down state
 toApplication runToIO webapp = do
   st <- liftIO $ newTVarIO =<< initState
   let ~(_,rts,mws) = runWebAppT webapp [] []
       withMiddleware = foldl (flip ($)) (mkApp st rts) mws
       withMiddleware2 = mkApp2 st rts -- TODO add middleware
-  return (withMiddleware2, withMiddleware, st)
+      teardown = readTVarIO st >>= destroyState
+  return (withMiddleware2, withMiddleware, teardown)
   where
     -- TODO: error catching
     notFoundHeaders = [("Content-Type", "text/plain; charset=utf-8")]
@@ -96,28 +87,16 @@ toApplication runToIO webapp = do
       Just (remainder,(_,pth,act)) -> do
         res <- runToIO $ evalRouteT act tvar pth nullPushFunc req
         case res of
-<<<<<<< HEAD
           Nothing -> mkApp tvar remainder req callback
           Just (s,h,b) -> callback $ responseStream s h $ runStream b
-=======
-          Left InterruptNext -> mkApp tvar remainder req callback
-          Left (InterruptHalt s h b) -> callback $ responseStream (fromMaybe status200 s) h $ runStream (fromMaybe mempty b)
-          Right (s,h,b) -> callback $ responseStream s h $ runStream b
->>>>>>> 7902c69fb35b871988e866941da6fc9c96594470
         
     mkApp2 tvar routes req pushFunc = case findRoute routes req of
       Nothing -> respond status404 notFoundHeaders $ streamSimple $ runStream $ stream "Not found."
       Just (remainder,(_,pth,act)) -> respondIO $ do
         res <- runToIO $ evalRouteT act tvar pth (wrapPushFunc pushFunc routes) req
         case res of
-<<<<<<< HEAD
           Nothing -> return $ mkApp2 tvar remainder req pushFunc
           Just (s,h,b) -> return $ respond s h $ streamSimple $ runStream b
-=======
-          Left InterruptNext -> return $ mkApp2 tvar remainder req pushFunc
-          Left (InterruptHalt s h b) -> return $ respond (fromMaybe status200 s) h $ streamSimple $ runStream (fromMaybe mempty b)
-          Right (s,h,b) -> return $ respond s h $ streamSimple $ runStream b
->>>>>>> 7902c69fb35b871988e866941da6fc9c96594470
     
 -- |Use a middleware
 middleware :: (WebAppState s, Monad m) => Middleware -> WebAppT s m ()

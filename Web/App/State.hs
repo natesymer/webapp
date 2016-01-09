@@ -1,3 +1,15 @@
+{-|
+Module      : Web.App.State
+Copyright   : (c) Nathaniel Symer, 2016
+License     : MIT
+Maintainer  : nate@symer.io
+Stability   : experimental
+Portability : POSIX
+
+Typeclass all types to be used as state for a WebApp
+must have an instance of.
+-}
+
 module Web.App.State
 (
   WebAppState(..)
