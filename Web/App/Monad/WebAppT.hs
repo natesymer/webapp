@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TupleSections #-}
 
 {-|
 Module      : Web.App.Monad.WebAppT
@@ -44,13 +44,16 @@ import Web.App.Monad.RouteT
 import Web.App.Path
 import Web.App.Stream
 
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Concurrent.STM
 
 import Network.Wai
 import Network.Wai.HTTP2
-import Network.HTTP.Types.Status (status404)
+import Network.HTTP.Types.Status
 import Network.HTTP.Types.Method
+
+import Debug.Trace
 
 -- |Monad for defining routes & adding middleware.
 newtype WebAppT s m a = WebAppT {
@@ -65,11 +68,7 @@ instance (WebAppState s, Functor m) => Functor (WebAppT s m) where
 
 instance (WebAppState s, Monad m) => Applicative (WebAppT s m) where
   pure a = WebAppT $ \r mw -> (a, r, mw)
-  -- (<*>) = ap -- TODO look into this
-  WebAppT mf <*> WebAppT mx = WebAppT $ \r mw ->
-    let ~(f, r', mw')   = mf r mw
-        ~(x, r'', mw'') = mx r' mw'
-    in   (f x, r'', mw'')
+  (<*>) = ap
 
 instance (WebAppState s, Monad m) => Monad (WebAppT s m) where
   m >>= k = WebAppT $ \r mw ->
@@ -90,20 +89,28 @@ toApplication runToIO webapp = do
       withMiddleware2 = mkApp2 st rts -- TODO add middleware
   return (withMiddleware2, withMiddleware, st)
   where
+    -- TODO: error catching
     notFoundHeaders = [("Content-Type", "text/plain; charset=utf-8")]
     mkApp tvar routes req callback = case findRoute routes req of
       Nothing -> callback $ responseLBS status404 notFoundHeaders "Not found."
-      Just (_,pth,act) -> do
-        (s,h,b) <- runToIO $ evalRouteT act tvar pth nullPushFunc req
-        callback $ responseStream s h $ runStream b
+      Just (remainder,(_,pth,act)) -> do
+        res <- runToIO $ evalRouteT act tvar pth nullPushFunc req
+        case res of
+          Left InterruptNext -> mkApp tvar remainder req callback
+          Left InterruptHalt -> callback $ responseStream status200 [] $ runStream mempty
+          Left (InterruptResult s h b) -> callback $ responseStream s h $ runStream b
+          Right (s,h,b) -> callback $ responseStream s h $ runStream b
         
     mkApp2 tvar routes req pushFunc = case findRoute routes req of
       Nothing -> respond status404 notFoundHeaders $ streamSimple $ runStream $ stream "Not found."
-      Just (_,pth,act) -> respondIO $ do
-        (s,h,b) <- runToIO $ evalRouteT act tvar pth (wrapPushFunc pushFunc routes) req
-        return $ respond s h $ streamSimple $ runStream b
-      
-
+      Just (remainder,(_,pth,act)) -> respondIO $ do
+        res <- runToIO $ evalRouteT act tvar pth (wrapPushFunc pushFunc routes) req
+        case res of
+          Left InterruptNext -> return $ mkApp2 tvar remainder req pushFunc
+          Left InterruptHalt -> return $ respond status200 [] $ streamSimple $ runStream mempty
+          Left (InterruptResult s h b) -> return $ respond s h $ streamSimple $ runStream b
+          Right (s,h,b) -> return $ respond s h $ streamSimple $ runStream b
+    
 -- |Use a middleware
 middleware :: (WebAppState s, Monad m) => Middleware -> WebAppT s m ()
 middleware m = WebAppT $ \r mw -> ((),r,mw ++ [m])

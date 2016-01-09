@@ -18,12 +18,12 @@ module Web.App.Path
   joinPath,
   mkQueryDict,
   pathCaptures,
-  regexPathCaptures,
-  regexPathNamedCaptures
+  pathNamedCaptures
 )
 where
 
 import Network.HTTP.Types (Query)
+import Network.HTTP.Types.URI (parseQuery)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
@@ -98,21 +98,38 @@ mkQueryDict :: Text -- queryString
             -> Query
 mkQueryDict pth
   | T.null pth = []
-  | otherwise = map splitPair $ T.splitOn "&" pth
-    where
-      splitPair p 
-        | T.null ev = (T.encodeUtf8 k, Nothing)
-        | T.length ev == 1 = (T.encodeUtf8 k, Nothing)
-        | otherwise = (T.encodeUtf8 k, Just $ T.encodeUtf8 $ T.tail ev)
-        where (k,ev) = T.breakOn "=" p
+  | otherwise = parseQuery $ T.encodeUtf8 pth
 
 {- Captures & Regex Captures -}
-
--- |Returns the captures by comparing @path@ to @capturedPath@.
-pathCaptures :: PathInfo -- ^ capturedPath
-             -> Text -- ^ path
+      
+-- |Returns path captures by comparing @path@ to @pathInfo@.
+pathCaptures :: Path -- ^ path
+             -> PathInfo -- ^ pathInfo
              -> [(Text,Text)]
-pathCaptures cap pth = f [] cap $ mkPathInfo pth
+pathCaptures (LiteralPath _) _ = []
+pathCaptures (RegexPath r) pin = case matchRegexAll r (T.unpack $ joinPath pin) of
+  Just (_,matched,_,groups) -> numberList $ (T.pack matched):(map T.pack groups)
+  Nothing -> []
+pathCaptures (CapturedPath cap) pin = numberList $ f [] cap pin
+  where
+    f acc [] [] = acc
+    f _   _  [] = []
+    f _   [] _  = []
+    f acc (c:cs) (p:ps)
+      | T.head c == ':' = f (p:acc) cs ps
+      | p == c = f acc cs ps
+      | otherwise = []
+      
+numberList :: [Text] -> [(Text,Text)]
+numberList = zipWith (\a b -> (T.pack $ show a, b)) ([0..] :: [Integer])
+
+-- |Returns named path captures by comparing @path@ to @pathInfo@.
+pathNamedCaptures :: Path -- ^ path
+                  -> PathInfo -- ^ pathInfo
+                  -> [(Text,Text)]
+pathNamedCaptures (LiteralPath _) _ = []
+pathNamedCaptures (RegexPath _) _ = [] -- TODO: named captures
+pathNamedCaptures (CapturedPath cap) pin = f [] cap pin
   where
     f acc [] [] = acc
     f _   _  [] = []
@@ -121,20 +138,4 @@ pathCaptures cap pth = f [] cap $ mkPathInfo pth
       | T.head c == ':' = f ((T.tail c,p):acc) cs ps
       | p == c = f acc cs ps
       | otherwise = []
-    
--- TODO: implement functions below
-               
--- |Returns matched unnamed capture groups in @regex@
--- by matching @regex@ with path.
-regexPathCaptures :: Text -- ^ regex
-                  -> Text -- ^ path
-                  -> [Text]
-regexPathCaptures _ _ = []
-                  
-               
--- |Returns matched named capture groups in @regex@
--- by matching @regex@ with path.
-regexPathNamedCaptures :: Text -- ^ regex
-                       -> Text -- ^ path
-                       -> [(Text,Text)]
-regexPathNamedCaptures _ _ = []
+

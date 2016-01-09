@@ -69,7 +69,9 @@ Library
                      mime-types,
                      filepath,
                      directory,
-                     optparse-applicative
+                     optparse-applicative,
+                     aeson,
+                     case-insensitive
 
 source-repository head
   type:     git

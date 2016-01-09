@@ -59,6 +59,12 @@ app = do
   post "/echobody" $ do
     body >>= writeBody . fromLazyByteString
     body >>= liftIO . print
+    
+  get "/fallthrough" $ do
+    next
+
+  get (regex ".*") $ do
+    writeBody "fell through"
 
 data Util = Password String
   

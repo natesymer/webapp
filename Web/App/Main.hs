@@ -29,7 +29,7 @@ module Web.App.Main
 )
 where
 
-import Web.App.Monad
+import Web.App.Monad hiding (header)
 import Web.App.State
 import Web.App.HTTP
 import Web.App.Internal.IO
