@@ -53,8 +53,6 @@ import Network.Wai.HTTP2
 import Network.HTTP.Types.Status
 import Network.HTTP.Types.Method
 
-import Debug.Trace
-
 -- |Monad for defining routes & adding middleware.
 newtype WebAppT s m a = WebAppT {
   runWebAppT :: [Route s m]
@@ -96,20 +94,16 @@ toApplication runToIO webapp = do
       Just (remainder,(_,pth,act)) -> do
         res <- runToIO $ evalRouteT act tvar pth nullPushFunc req
         case res of
-          Left InterruptNext -> mkApp tvar remainder req callback
-          Left InterruptHalt -> callback $ responseStream status200 [] $ runStream mempty
-          Left (InterruptResult s h b) -> callback $ responseStream s h $ runStream b
-          Right (s,h,b) -> callback $ responseStream s h $ runStream b
+          Nothing -> mkApp tvar remainder req callback
+          Just (s,h,b) -> callback $ responseStream s h $ runStream b
         
     mkApp2 tvar routes req pushFunc = case findRoute routes req of
       Nothing -> respond status404 notFoundHeaders $ streamSimple $ runStream $ stream "Not found."
       Just (remainder,(_,pth,act)) -> respondIO $ do
         res <- runToIO $ evalRouteT act tvar pth (wrapPushFunc pushFunc routes) req
         case res of
-          Left InterruptNext -> return $ mkApp2 tvar remainder req pushFunc
-          Left InterruptHalt -> return $ respond status200 [] $ streamSimple $ runStream mempty
-          Left (InterruptResult s h b) -> return $ respond s h $ streamSimple $ runStream b
-          Right (s,h,b) -> return $ respond s h $ streamSimple $ runStream b
+          Nothing -> return $ mkApp2 tvar remainder req pushFunc
+          Just (s,h,b) -> return $ respond s h $ streamSimple $ runStream b
     
 -- |Use a middleware
 middleware :: (WebAppState s, Monad m) => Middleware -> WebAppT s m ()

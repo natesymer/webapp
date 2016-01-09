@@ -4,7 +4,7 @@ module Main (main) where
 import Web.App
 import Options.Applicative
 import Network.Wai
-import Network.HTTP.Types (Status(..))
+import Network.HTTP.Types
 import Network.HTTP.Types.Method
 import Data.Text.Lazy (Text)
 import qualified Data.ByteString.Lazy.Char8 as BL

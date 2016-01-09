@@ -72,11 +72,11 @@ import qualified Data.Text.Encoding as T
 type Predicate = Request -> Bool -- ^ Used to determine if a route can handle a request
 type Route s m = (Predicate, Path, RouteT s m ()) 
 type WrappedPushFunc s m = (Request -> RouteT s m Bool)
-type RouteResult = Either RouteInterrupt (Status, ResponseHeaders, Stream) -- kind of like a Ruby Rack response.
+type RouteResult = Maybe (Status, ResponseHeaders, Stream) -- kind of like a Ruby Rack response.
 
-data RouteInterrupt = InterruptNext
-                    | InterruptHalt -- ^ immediately stop route evaluation
-                    | InterruptResult Status ResponseHeaders Stream -- ^ halt & provide a response
+data RouteInterrupt = InterruptNext -- ^ halt current route evaluation and start evaluating next route
+                    | InterruptHalt (Maybe Status) ResponseHeaders (Maybe Stream) -- ^ halt & provide a response
+                    deriving (Show)
            
 -- |RouteT monad transformer. All routes are evaluated
 -- in this monad transformer.
@@ -101,10 +101,9 @@ evalRouteT act st pth pf req = do
   bdy <- liftIO $ newTVarIO BL.Empty
   v <- runRouteT act st pth bdy pf req
   case v of
-    Left InterruptHalt -> return $ Left $ InterruptResult status200 [] mempty
-    Left InterruptNext -> return $ Left InterruptNext
-    Left e -> return $ Left e
-    Right ~(_,s,h,b) -> return $ Right (fromMaybe status200 s,h,fromMaybe mempty b)
+    Left InterruptNext -> return Nothing
+    Left (InterruptHalt s h b) -> return $ Just (fromMaybe status200 s,h,fromMaybe mempty b)
+    Right ~(_,s,h,b) -> return $ Just (fromMaybe status200 s,h,fromMaybe mempty b)
             
 instance (WebAppState s, Functor m) => Functor (RouteT s m) where
   fmap f m = RouteT $ \st pth bdy pf req -> fmap apply $ runRouteT m st pth bdy pf req
@@ -121,17 +120,16 @@ instance (WebAppState s, Monad m) => Monad (RouteT s m) where
   m >>= k = RouteT $ \st pth bdy pf req -> do
     v <- runRouteT m st pth bdy pf req
     case v of
-      Left InterruptHalt -> return $ Left $ InterruptResult status200 [] mempty
-      Left InterruptNext -> return $ Left InterruptNext
       Left e -> return $ Left e
       Right ~(x, s, h, b) -> do
         v' <- runRouteT (k x) st pth bdy pf req
         case v' of
-          Left InterruptHalt -> return $ Left $ InterruptResult (fromMaybe status200 s) h (fromMaybe mempty b)
           Left InterruptNext -> return $ Left InterruptNext
-          Left e -> return $ Left e
-          Right ~(y, s', h', b') -> return $ Right (y, s' <|> s, h' ++ h, mappend b b')
-      
+          Left (InterruptHalt s' h' b') -> return $ Left combined
+            where combined = InterruptHalt (s' <|> s) (h' <> h) (b <> b')
+          Right ~(y, s', h', b') -> return $ Right $ combined
+            where combined = (y, s' <|> s, h' <> h, b <> b')
+
 instance (WebAppState s) => MonadTrans (RouteT s) where
   lift m = RouteT $ \_ _ _ _ _ -> m >>= return . Right . (,Nothing,[],Nothing)
 
@@ -174,9 +172,8 @@ wrapPushFunc pf rts = f
             Just (_,(_,pth,act)) -> do
               e <- evalRouteT act st pth f req
               case e of
-                Left InterruptHalt -> return $ Right (False,Nothing,[],Nothing)
-                Left InterruptNext -> return $ Right (False,Nothing,[],Nothing) -- TODO: recurse
-                Right (s,h,b) -> do
+                Nothing -> return $ Right (False,Nothing,[],Nothing) -- TODO: recurse
+                Just (s,h,b) -> do
                   let meth = requestMethod req
                       p = rawPathInfo req
                       scheme = if isSecure req then "https" else "http"
@@ -196,12 +193,12 @@ findRoute (x@(pd,pth,_):xs) req
 -- |Halt route evaluation and provide the given 'Status',
 -- 'ResponseHeaders', and 'Stream'.
 halt :: (WebAppState s, Monad m) => Status -> ResponseHeaders -> Stream -> RouteT s m ()
-halt s h b = RouteT $ \_ _ _ _ _ -> return $ Left $ InterruptResult s h b
+halt s h b = RouteT $ \_ _ _ _ _ -> return $ Left $ InterruptHalt (Just s) h (Just b)
   
 -- |Halt route evaluation and provide the accumulated 'Status',
 -- 'ResponseHeaders', and 'Stream'.
 halt' :: (WebAppState s, Monad m) => RouteT s m ()
-halt' = RouteT $ \_ _ _ _ _ -> return $ Left InterruptHalt
+halt' = RouteT $ \_ _ _ _ _ -> return $ Left $ InterruptHalt Nothing [] Nothing
 
 -- |Halt route evaluation and move onto the next
 -- route that passes.
@@ -254,7 +251,7 @@ status s = RouteT $ \_ _ _ _ _ -> return $ Right ((),Just s,[],Nothing)
 
 -- |Redirect to the given path using a @Location@ header and
 -- an HTTP status of 302. Route evaluation continues.
-redirect :: (WebAppState s, Monad m) => ByteString -> RouteT s m ()
+redirect :: (WebAppState s, MonadIO m) => ByteString -> RouteT s m ()
 redirect url = do
   status status302
   addHeader "Location" url
@@ -277,6 +274,7 @@ params = fmap (mconcat . catMaybes) $ sequence [cap,bdy,q]
       case lookup (mk "Content-Type") h of
         Just "application/x-www-form-urlencoded" -> fmap (Just . parseQuery . BL.toStrict) body
         Just "multipart/form-data" -> return Nothing -- TODO: implement me
+        Just _ -> return Nothing
         Nothing -> return Nothing
     q = Just . queryString <$> request
 
