@@ -68,6 +68,8 @@ import qualified Data.ByteString.Lazy.Internal as BL (ByteString(Empty,Chunk))
 import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Text.Encoding as T
+
+import Debug.Trace
            
 type Predicate = Request -> Bool -- ^ Used to determine if a route can handle a request
 type Route s m = (Predicate, Path, RouteT s m ()) 
@@ -114,7 +116,9 @@ instance (WebAppState s, Functor m) => Functor (RouteT s m) where
 instance (WebAppState s, Monad m) => Applicative (RouteT s m) where
   pure a = RouteT $ \_ _ _ _ _ -> return $ Right (a,Nothing,[],Nothing)
   (<*>) = ap
-
+  
+-- TODO: fixme
+-- redirect url = status status302 >>= \_ -> (addHeader "Location" url >>= \_ -> halt')
 instance (WebAppState s, Monad m) => Monad (RouteT s m) where
   fail msg = RouteT $ \_ _ _ _ _ -> fail msg
   m >>= k = RouteT $ \st pth bdy pf req -> do
@@ -256,6 +260,8 @@ redirect url = do
   status status302
   addHeader "Location" url
   halt'
+-- redirect :: (WebAppState s, MonadIO m) => ByteString -> RouteT s m ()
+-- redirect url = status status302 >>= \_ -> (addHeader "Location" url >>= \_ -> halt')
 
 -- |Get the request's headers.
 headers :: (WebAppState s, Monad m) => RouteT s m RequestHeaders

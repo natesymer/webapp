@@ -48,6 +48,8 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Concurrent.STM
 
+import Data.Maybe
+
 import Network.Wai
 import Network.Wai.HTTP2
 import Network.HTTP.Types.Status
@@ -94,16 +96,28 @@ toApplication runToIO webapp = do
       Just (remainder,(_,pth,act)) -> do
         res <- runToIO $ evalRouteT act tvar pth nullPushFunc req
         case res of
+<<<<<<< HEAD
           Nothing -> mkApp tvar remainder req callback
           Just (s,h,b) -> callback $ responseStream s h $ runStream b
+=======
+          Left InterruptNext -> mkApp tvar remainder req callback
+          Left (InterruptHalt s h b) -> callback $ responseStream (fromMaybe status200 s) h $ runStream (fromMaybe mempty b)
+          Right (s,h,b) -> callback $ responseStream s h $ runStream b
+>>>>>>> 7902c69fb35b871988e866941da6fc9c96594470
         
     mkApp2 tvar routes req pushFunc = case findRoute routes req of
       Nothing -> respond status404 notFoundHeaders $ streamSimple $ runStream $ stream "Not found."
       Just (remainder,(_,pth,act)) -> respondIO $ do
         res <- runToIO $ evalRouteT act tvar pth (wrapPushFunc pushFunc routes) req
         case res of
+<<<<<<< HEAD
           Nothing -> return $ mkApp2 tvar remainder req pushFunc
           Just (s,h,b) -> return $ respond s h $ streamSimple $ runStream b
+=======
+          Left InterruptNext -> return $ mkApp2 tvar remainder req pushFunc
+          Left (InterruptHalt s h b) -> return $ respond (fromMaybe status200 s) h $ streamSimple $ runStream (fromMaybe mempty b)
+          Right (s,h,b) -> return $ respond s h $ streamSimple $ runStream b
+>>>>>>> 7902c69fb35b871988e866941da6fc9c96594470
     
 -- |Use a middleware
 middleware :: (WebAppState s, Monad m) => Middleware -> WebAppT s m ()
