@@ -48,12 +48,12 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Concurrent.STM
 
+import Data.Maybe
+
 import Network.Wai
 import Network.Wai.HTTP2
 import Network.HTTP.Types.Status
 import Network.HTTP.Types.Method
-
-import Debug.Trace
 
 -- |Monad for defining routes & adding middleware.
 newtype WebAppT s m a = WebAppT {
@@ -97,8 +97,7 @@ toApplication runToIO webapp = do
         res <- runToIO $ evalRouteT act tvar pth nullPushFunc req
         case res of
           Left InterruptNext -> mkApp tvar remainder req callback
-          Left InterruptHalt -> callback $ responseStream status200 [] $ runStream mempty
-          Left (InterruptResult s h b) -> callback $ responseStream s h $ runStream b
+          Left (InterruptHalt s h b) -> callback $ responseStream (fromMaybe status200 s) h $ runStream (fromMaybe mempty b)
           Right (s,h,b) -> callback $ responseStream s h $ runStream b
         
     mkApp2 tvar routes req pushFunc = case findRoute routes req of
@@ -107,8 +106,7 @@ toApplication runToIO webapp = do
         res <- runToIO $ evalRouteT act tvar pth (wrapPushFunc pushFunc routes) req
         case res of
           Left InterruptNext -> return $ mkApp2 tvar remainder req pushFunc
-          Left InterruptHalt -> return $ respond status200 [] $ streamSimple $ runStream mempty
-          Left (InterruptResult s h b) -> return $ respond s h $ streamSimple $ runStream b
+          Left (InterruptHalt s h b) -> return $ respond (fromMaybe status200 s) h $ streamSimple $ runStream (fromMaybe mempty b)
           Right (s,h,b) -> return $ respond s h $ streamSimple $ runStream b
     
 -- |Use a middleware
