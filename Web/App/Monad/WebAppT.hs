@@ -26,7 +26,8 @@ module Web.App.Monad.WebAppT
   patch,
   delete,
   options,
-  anyRequest
+  anyRequest,
+  matchAll
 ) where
 
 import Web.App.State
@@ -136,6 +137,10 @@ delete p act = route (matchMethod methodDelete) p act
 options :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
 options p act = route (matchMethod methodOptions) p act
 
--- |Match any request.
+-- |Match any request given a path.
 anyRequest :: (WebAppState s, Monad m) => Path -> RouteT s m () -> WebAppT s m ()
 anyRequest = route (const True)
+
+-- |Match all requests and paths.
+matchAll :: (WebAppState s, Monad m) => RouteT s m () -> WebAppT s m ()
+matchAll = route (const True) (regex ".*")

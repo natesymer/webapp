@@ -41,12 +41,21 @@ module Web.App.Monad.RouteT
   redirect,
   params,
   param,
+  maybeParam,
   bodyReader,
   body,
   urlencodedBody,
   path
 )
 where
+  
+{-
+
+TODO
+
+* rewrite param & maybeParam to use something other than 'Read'.
+  
+-}
   
 import Web.App.State
 import Web.App.Path
@@ -300,9 +309,13 @@ params = fmap (mconcat . catMaybes) $ sequence [cap,bdy,q]
 
 -- |Get a specific header. Will call 'next' if the parameter isn't present.
 param :: (WebAppState s, MonadIO m, Read a) => ByteString -> RouteT s m a
-param k = params >>= f . fmap (fromMaybe "") . lookup k
-  where f (Just v) = return $ read $ B.unpack v
-        f Nothing = next >> (return $ read "")
+param k = params >>= f . lookup k
+  where f (Just (Just v)) = return $ read $ B.unpack v
+        f _ = next >> (return $ read "")
+        
+-- |Get a specific header. Will not interfere with route evaluation.
+maybeParam :: (WebAppState s, MonadIO m, Read a) => ByteString -> RouteT s m (Maybe a)
+maybeParam k = maybe Nothing (fmap (read . B.unpack)) . lookup k <$> params
 
 -- |Get an action that reads a chunk from the HTTP body. Can be used
 -- before 'body'. A chunk is not read until it's needed (non-strictness).
