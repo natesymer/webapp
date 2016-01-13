@@ -124,13 +124,13 @@ pathCaptures (LiteralPath _) _ = []
 pathCaptures (RegexPath r) pin = case matchRegexAll r (T.unpack $ joinPath pin) of
   Just (_,matched,_,groups) -> numberList $ (T.pack matched):(map T.pack groups)
   Nothing -> []
-pathCaptures (CapturedPath cap) pin = numberList $ f [] cap pin
+pathCaptures (CapturedPath cap) pin = f [] cap pin
   where
     f acc [] [] = acc
     f _   _  [] = []
     f _   [] _  = []
     f acc (c:cs) (p:ps)
-      | T.head c == ':' = f (p:acc) cs ps
+      | T.head c == ':' = f ((T.tail c,p):acc) cs ps
       | p == c = f acc cs ps
       | otherwise = []
       

@@ -53,13 +53,16 @@ where
 
 TODO
 
-* rewrite param & maybeParam to use something other than 'Read'.
+  * Rewite 'param' and 'maybeParam' to avoid calling next
+  * Allow 'InterruptNext' to carry state into
+    the evaluation of the next route.
   
 -}
   
 import Web.App.State
 import Web.App.Path
 import Web.App.Stream
+import Web.App.Parameter
   
 import Control.Monad (ap)
 import Control.Monad.IO.Class
@@ -90,14 +93,6 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Text.Encoding as T
 
-{-
-TODO
-
-  * Allow 'InterruptNext' to carry state into
-    the evaluation of the next route.
-
--}
-           
 type Predicate = Request -> Bool -- ^ Used to determine if a route can handle a request
 type Route s m = (Predicate, Path, RouteT s m ()) 
 type WrappedPushFunc s m = (Request -> RouteT s m Bool)
@@ -308,14 +303,17 @@ params = fmap (mconcat . catMaybes) $ sequence [cap,bdy,q]
     q = Just . queryString <$> request
 
 -- |Get a specific header. Will call 'next' if the parameter isn't present.
-param :: (WebAppState s, MonadIO m, Read a) => ByteString -> RouteT s m a
-param k = params >>= f . lookup k
-  where f (Just (Just v)) = return $ read $ B.unpack v
+param :: (WebAppState s, MonadIO m, Parameter a, Read a, Show a) => ByteString -> RouteT s m a
+param k = params >>= f . fmap (fmap maybeRead) . lookup k
+  where f (Just (Just (Just v))) = return v
         f _ = next >> (return $ read "")
         
 -- |Get a specific header. Will not interfere with route evaluation.
-maybeParam :: (WebAppState s, MonadIO m, Read a) => ByteString -> RouteT s m (Maybe a)
-maybeParam k = maybe Nothing (fmap (read . B.unpack)) . lookup k <$> params
+maybeParam :: (WebAppState s, MonadIO m, Parameter a, Read a) => ByteString -> RouteT s m (Maybe a)
+maybeParam k = f . lookup k <$> params
+  where
+    f (Just (Just v)) = maybeRead v
+    f _ = Nothing
 
 -- |Get an action that reads a chunk from the HTTP body. Can be used
 -- before 'body'. A chunk is not read until it's needed (non-strictness).

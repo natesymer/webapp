@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, TupleSections #-}
+{-# LANGUAGE OverloadedStrings, TupleSections, ScopedTypeVariables #-}
 module Main (main) where
     
 import Web.App
@@ -41,6 +41,11 @@ app = do
     S.put 0
     redirect "/"
     
+  get "/add/specific" $ do
+    v <- param "v"
+    S.state (((),) . (+) v)
+    redirect "/"
+    
   get "/message" $ do
     writeBody "writeBody \"This is a subpath,\\n\"\n"
     writeBody "writeBody \"hear it roar!\""
@@ -64,8 +69,15 @@ app = do
     liftIO $ putStrLn "falling through..."
     next
 
-  get (regex ".*") $ do
-    writeBody "fell through!"
+  get "/captured/:id" $ do
+    param "id" >>= \(v :: Integer) -> liftIO $ print v
+
+  get (regex "/assets/(.*)") $ do
+    params >>= liftIO . print
+    param "1" >>= \(v :: String) -> liftIO $ print $ v ++ "8"
+    
+  matchAll $ do
+    writeBody "fell through!\n"
 
 data Util = Password String
   
