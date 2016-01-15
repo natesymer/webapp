@@ -62,14 +62,14 @@ data Cmd
   
 -- |Like 'webappMainIO' without the CLI extension arguments.
 webappMainIO' :: (WebAppState s)
-              => WebAppT s IO () -- ^ app to start
+              => WebApp s IO -- ^ app to start
               -> String -- ^ CLI title/description
               -> IO ()
 webappMainIO' a d = webappMainIO a d Nothing (const $ return ())
   
 -- |Run a webapp based on IO.
 webappMainIO :: (WebAppState s)
-             => WebAppT s IO () -- ^ app to start
+             => WebApp s IO -- ^ app to start
              -> String -- ^ CLI title/description
              -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
              -> (a -> IO ()) -- ^ action to apply to parse result of 'utilParser'
@@ -79,7 +79,7 @@ webappMainIO = webappMain id
 -- |Like 'webappMain' without the CLI extension arguments.
 webappMain' :: (WebAppState s, MonadIO m)
             => (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
-            -> WebAppT s m () -- ^ app to start
+            -> WebApp s m -- ^ app to start
             -> String -- ^ CLI title/description
             -> IO ()
 webappMain' f a d = webappMain f a d Nothing (const $ return ())
@@ -88,7 +88,7 @@ webappMain' f a d = webappMain f a d Nothing (const $ return ())
 -- additional CLI parser, it is made available under the @util@ subcommand.
 webappMain :: (WebAppState s, MonadIO m)
            => (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
-           -> WebAppT s m () -- ^ app to start
+           -> WebApp s m -- ^ app to start
            -> String -- ^ CLI title/description
            -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
            -> (a -> IO ()) -- ^ action to apply to parse result of 'utilParser'

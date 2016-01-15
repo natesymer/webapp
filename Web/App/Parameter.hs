@@ -10,11 +10,11 @@ import Data.Maybe
   
 import Data.Word
 import Data.Int
-import qualified Data.Text as T (Text,pack)
+import qualified Data.Text as T (Text)
 import qualified Data.Text.Encoding as T (decodeUtf8)
-import qualified Data.Text.Lazy as TL (Text,pack)
+import qualified Data.Text.Lazy as TL (Text)
 import qualified Data.Text.Lazy.Encoding as TL (decodeUtf8)
-import qualified Data.ByteString.Char8 as B (ByteString,pack,unpack,length,head,null,split)
+import qualified Data.ByteString.Char8 as B (ByteString,unpack,length,head,null,split)
 import qualified Data.ByteString.Lazy.Char8 as BL (ByteString,fromStrict)
   
 class Parameter a where

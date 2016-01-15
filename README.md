@@ -1,11 +1,13 @@
-# webapp - simple webapp scaffolding with state
+# webapp - WAI web framework
+
+Webapp is a web framework that is designed to provide everything needed to define & deploy a web app.
 
 Basic example:
 
     module Main where
     
     import Web.App
-    import Web.Scotty.Trans
+	import qualified Control.Monad.State.Class as S
     
     instance WebAppState Integer where
       initState = return 0
@@ -13,18 +15,18 @@ Basic example:
         putStr "Counted: "
         print st
 
-    main = webappMain app "My Web App" "This is a demo web app"
+    main = webappMainIO' app "My Web App"
 
-    app :: (ScottyError e) => ScottyT e (WebAppM Integer) ()
+    app :: WebAppT Integer IO ()
     app = do
+      get "/" $ do
+        addHeader "Content-Type" "text/plain"
+   		S.get >>= writeBody . show
+    
       get "/add" $ do
-      	modifyState (+1)
+      	S.state (((),) . (+) 1)
+   		redirect "/"
         
       get "/subtract" $ do
-        (State count) <- getState
-        putState (State count-1)
-        
-      get "/assets/:file" $ param "file" >>= loadAsset
-    
-    
-There is also a module called `FileCache` which is available for loading cached files. It loads files into memory, MD5 sums them, compresses them, and then stores them in the cache.
+        S.get >>= S.put . ((-) 1)
+        redirect "/"

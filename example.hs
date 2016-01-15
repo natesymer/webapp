@@ -23,61 +23,49 @@ instance WebAppState Integer where
 main :: IO ()
 main = webappMainIO app "My Web App" (Just parseUtil) handleUtil
 
-app :: WebAppT Integer IO ()
-app = do
-  get "/" $ do
-    addHeader "Content-Type" "text/plain"
-    S.get >>= writeBody . fromString . show
-
-  get "/add" $ do
-    S.state (((),) . (+) 1)
-    redirect "/"
-    
-  get "/subtract" $ do
-    S.state (((),) . (-) 1)
-    redirect "/"
-
-  get "/reset" $ do
-    S.put 0
-    redirect "/"
-    
-  get "/add/specific" $ do
-    v <- param "v"
-    S.state (((),) . (+) v)
-    redirect "/"
-    
-  get "/message" $ do
-    writeBody "writeBody \"This is a subpath,\\n\"\n"
-    writeBody "writeBody \"hear it roar!\""
-    
-  get "/pushedpage" $ do
-    addHeader "Content-Type" "text/html"
-    push methodGet "/image.png"
-    writeBody "<div>"
-    writeBody "<img src='/image.png'></img>"
-    writeBody "</div>"
-    
-  get "/image.png" $ do
-    addHeader "Content-Type" "image/png"
-    (liftIO $ BL.readFile "image.png") >>= writeBody . fromLazyByteString
-    
-  post "/echobody" $ do
-    body >>= writeBody . fromLazyByteString
-    body >>= liftIO . print
-    
-  get "/fallthrough" $ do
-    liftIO $ putStrLn "falling through..."
-    next
-
-  get "/captured/:id" $ do
-    param "id" >>= \(v :: Integer) -> liftIO $ print v
-
-  get (regex "/assets/(.*)") $ do
-    params >>= liftIO . print
-    param "1" >>= \(v :: String) -> liftIO $ print $ v ++ "8"
-    
-  matchAll $ do
-    writeBody "fell through!\n"
+app :: WebApp Integer IO
+app = mconcat [
+  -- Counter routes
+  get "/" root,
+  get "/add" add,
+  get "/add/specific" addSpecific,
+  get "/subtract" subtr,
+  get "/reset" reset,
+  -- Extended example routes
+  get "/fallthrough" ,
+  get "/message" message,
+  get "/captured/:id" withC,
+  get (regex "/assets/(.*)") withR,
+  matchAll $ writeBodyBytes "not found!\n"]
+  where
+    root = do
+      addHeader "Content-Type" "text/plain"
+      S.get >>= writeBody . show
+    add = do
+      S.state (((),) . (+) 1)
+      redirect "/"
+    addSpecific = do
+      v <- param "v"
+      S.state (((),) . (+) v)
+      redirect "/"
+    subtr = do
+      S.state (((),) . (-) 1)
+      redirect "/"
+    reset = do
+      S.put 0
+      redirect "/"
+    fallthrough = do
+      liftIO $ putStrLn "falling through..."
+      next
+    message = do
+      writeBodyBytes "writeBodyBytes \"This is a subpath,\\n\"\n"
+      writeBodyBytes "writeBodyBytes \"hear it roar!\""
+    withC = do
+      param "id" >>= \(v :: Integer) -> writeBody $ show v
+    withR = do
+      writeBodyBytes "asset path: "
+      param "1" >>= writeBodyBytes
+      writeBody '\n'
 
 data Util = Password String
   
