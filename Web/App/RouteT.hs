@@ -12,7 +12,7 @@ and using middleware.
 
 {-# LANGUAGE OverloadedStrings, TupleSections, FlexibleInstances, MultiParamTypeClasses #-}
 
-module Web.App.Monad.RouteT
+module Web.App.RouteT
 (
   -- * RouteT monad transformer
   RouteT,

@@ -24,17 +24,16 @@ Library
   Exposed-modules:   Web.App
                      Web.App.HTTP
                      Web.App.State
-                     Web.App.Monad
-                     Web.App.Monad.WebAppT
-                     Web.App.Monad.RouteT
                      Web.App.Middleware
                      Web.App.Middleware.Gzip
                      Web.App.Middleware.ForceSSL
                      Web.App.Parameter
                      Web.App.Path
+                     Web.App.RouteT
                      Web.App.Stream
                      Web.App.Main
                      Web.App.Internal.TerminalSize
+                     Web.App.WebApp
   other-modules:     Web.App.Internal.IO
                      Web.App.Internal.Daemon
                      Web.App.Internal.Privileges

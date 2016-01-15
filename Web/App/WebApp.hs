@@ -12,7 +12,7 @@ and using middleware.
 
 {-# LANGUAGE OverloadedStrings, TupleSections, FlexibleInstances #-}
 
-module Web.App.Monad.WebAppT
+module Web.App.WebApp
 (
   WebApp(..),
   toApplication,
@@ -30,7 +30,7 @@ module Web.App.Monad.WebAppT
 ) where
 
 import Web.App.State
-import Web.App.Monad.RouteT
+import Web.App.RouteT
 import Web.App.Path
 import Web.App.Stream
 
