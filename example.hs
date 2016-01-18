@@ -36,7 +36,6 @@ app = mconcat [
   get "/message" message,
   get "/captured/:id" withC,
   get (regex "/assets/(.*)") withR,
-  post "/test/body" testbody,
   matchAll $ writeBodyBytes "not found!\n"]
   where
     root = do
@@ -67,10 +66,6 @@ app = mconcat [
       writeBodyBytes "asset path: "
       param "1" >>= writeBodyBytes
       writeBody '\n'
-    testbody = do
-      body >>= writeBody
-      body >>= writeBody
-      body >>= liftIO . print
 
 data Util = Password String
   

@@ -15,7 +15,8 @@ module Web.App.Stream
 (
   Stream(..),
   ToStream(..),
-  flush
+  flush,
+  flusher
 )
 where
   
@@ -28,6 +29,7 @@ import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy as TL
 import qualified Data.Text.Lazy.Encoding as TL
+import Data.Monoid
 
 -- |An HTTP response body stream.
 newtype Stream = Stream { runStream :: StreamingBody }
@@ -36,9 +38,13 @@ instance Monoid Stream where
   mempty = Stream $ \_ _ -> return ()
   mappend (Stream a) (Stream b) = Stream $ \w f -> a w f >> b w f
 
--- |Flush a stream
+-- |Flush a stream.
 flush :: Stream -> Stream
-flush (Stream s) = Stream $ \w f -> s w f >> f
+flush s = s <> flusher
+
+-- |A stream that flushes written data.
+flusher :: Stream
+flusher = Stream $ \_ f -> f
 
 -- |Turn data into a WAI stream.
 class ToStream a where

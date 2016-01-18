@@ -118,8 +118,8 @@ evalRouteT act st pth req = do
   f <$> runRouteT act st pth bdy req
   where
     f (Left InterruptNext) = Nothing
-    f (Left (InterruptHalt s h b)) = Just (fromMaybe status200 s,h,fromMaybe mempty b)
-    f (Right ~(_,s,h,b)) = Just (fromMaybe status200 s,h,fromMaybe mempty b)
+    f (Left (InterruptHalt s h b)) = Just (fromMaybe status200 s,h,maybe mempty flush b)
+    f (Right ~(_,s,h,b)) = Just (fromMaybe status200 s,h,maybe mempty flush b)
             
 instance (WebAppState s, Functor m) => Functor (RouteT s m) where
   fmap f m = RouteT $ \st pth bdy req -> fmap apply $ runRouteT m st pth bdy req
@@ -173,13 +173,6 @@ instance (WebAppState s, Monad m) => MonadWriter Stream (RouteT s m) where
       Left e -> return $ Left e
       Right ((a,f),_,_,mw) ->
         return $ Right (a,Nothing,[],maybe mempty (Just . f) mw)
-        
--- |MonadReader instance for reading the HTTP body.
--- instance (WebAppState s, Monad m) => MonadReader BL.ByteString (RouteT s m) where
---   ask = do
---
---   local f r = do
---
 
 {- Route Evaluation -}
 
@@ -202,22 +195,22 @@ halt :: (WebAppState s, Monad m)
      -> ResponseHeaders -- ^ headers with which to terminate
      -> Stream -- ^ body with which to terminate
      -> RouteT s m a
-halt s h b = act >> let x = x in x
+halt s h b = act >> let x = x in x -- second action will never be evaluated
   where act = RouteT $ \_ _ _ _ ->
                 return $ Left $ InterruptHalt (Just s) h (Just b)
   
 -- |Halt route evaluation and provide the accumulated 'Status',
 -- 'ResponseHeaders', and 'Stream'.
 halt' :: (WebAppState s, Monad m) => RouteT s m a
-halt' = act >> let x = x in x
+halt' = act >> let x = x in x -- second action will never be evaluated
   where act = RouteT $ \_ _ _ _ ->
                 return $ Left $ InterruptHalt Nothing [] Nothing
 
 -- |Halt route evaluation and move onto the next
 -- route that passes.
 next :: (WebAppState s, Monad m) => RouteT s m a
-next = act >> let x = x in x
-  where act = (RouteT $ \_ _ _ _ -> return $ Left InterruptNext)
+next = act >> let x = x in x -- second action will never be evaluated
+  where act = RouteT $ \_ _ _ _ -> return $ Left InterruptNext
 
 -- |Write a 'Stream' to the response body.
 writeBody :: (WebAppState s, Monad m, ToStream w) => w -> RouteT s m ()
