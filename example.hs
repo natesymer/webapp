@@ -62,7 +62,6 @@ app = mconcat [
       writeBodyBytes "writeBodyBytes \"hear it roar!\""
     withC = do
       param "id" >>= \(v :: Double) -> writeBody $ show v
-      liftIO $ print "after"
     withR = do
       writeBodyBytes "asset path: "
       param "1" >>= writeBodyBytes
