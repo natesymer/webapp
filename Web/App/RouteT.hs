@@ -152,12 +152,14 @@ instance (WebAppState s) => MonadTrans (RouteT s) where
 instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
   liftIO = lift . liftIO
   
+-- |MonadState instance for accessing the mutable state.
 instance (WebAppState s, MonadIO m) => MonadState s (RouteT s m) where
   get = RouteT $ \st _ _ _ ->
     Right . (,Nothing,[],Nothing) <$> (liftIO $ readTVarIO st)
   put v = RouteT $ \st _ _ _ ->
     Right . (,Nothing,[],Nothing) <$> (liftIO $ atomically $ writeTVar st v)
 
+-- |MonadWriter instance for writing to the HTTP response body.
 instance (WebAppState s, Monad m) => MonadWriter Stream (RouteT s m) where
   tell s = RouteT $ \_ _ _ _ -> return $ Right ((),Nothing,[],Just s)
   listen act = RouteT $ \st pth bdy req -> do
@@ -171,6 +173,13 @@ instance (WebAppState s, Monad m) => MonadWriter Stream (RouteT s m) where
       Left e -> return $ Left e
       Right ((a,f),_,_,mw) ->
         return $ Right (a,Nothing,[],maybe mempty (Just . f) mw)
+        
+-- |MonadReader instance for reading the HTTP body.
+-- instance (WebAppState s, Monad m) => MonadReader BL.ByteString (RouteT s m) where
+--   ask = do
+--
+--   local f r = do
+--
 
 {- Route Evaluation -}
 
@@ -251,54 +260,51 @@ header k = lookup (mk k) <$> headers
 
 -- |Get the 'Request''s parameters (in order captures, HTTP body, URI query).
 params :: (WebAppState s, MonadIO m) => RouteT s m Query
-params = fmap (mconcat . catMaybes) $ sequence [cap,bdy,q]
+params = fmap mconcat $ sequence [cap, bdy, q]
   where
-    cap = RouteT $ \_ pth _ req ->
-            return $ Right (Just $ map toQuery $ pathCaptures pth $ pathInfo req,Nothing,[],Nothing)
-      where toQuery (a,b) = (T.encodeUtf8 a, Just $ T.encodeUtf8 b)
+    cap = do
+      pinfo <- pathInfo <$> request
+      pth <- path
+      return $ map toQueryItem $ pathCaptures pth pinfo
+      where toQueryItem (a,b) = (T.encodeUtf8 a, Just $ T.encodeUtf8 b)
     bdy = do
       h <- requestHeaders <$> request
       case lookup (mk "Content-Type") h of
-        Just "application/x-www-form-urlencoded" -> Just . parseQuery . BL.toStrict <$> body
-        Just "multipart/form-data" -> return Nothing -- TODO: implement me
-        Just _ -> return Nothing
-        Nothing -> return Nothing
-    q = Just . queryString <$> request
+        Just "application/x-www-form-urlencoded" -> parseQuery . BL.toStrict <$> body
+        Just "multipart/form-data" -> return [] -- TODO: implement me
+        _ -> return []
+    q = queryString <$> request
 
 -- |Get a specific header. Will call 'next' if the parameter isn't present.
 param :: (WebAppState s, MonadIO m, Parameter a) => ByteString -> RouteT s m a
-param k = params >>= f . fmap (fmap maybeRead) . lookup k
-  where f (Just (Just (Just v))) = return v
-        f _ = next
-        
+param k = maybeParam k >>= maybe next return
+
 -- |Get a specific header. Will not interfere with route evaluation.
 maybeParam :: (WebAppState s, MonadIO m, Parameter a) => ByteString -> RouteT s m (Maybe a)
 maybeParam k = f . lookup k <$> params
   where f (Just (Just v)) = maybeRead v
         f _ = Nothing
 
--- |Get an action that reads a chunk from the HTTP body. Can be used
--- before 'body'. A chunk is not read until it's needed (non-strictness).
+-- |Get an action that reads a chunk from the request body.
+-- Incompatible with 'body'.
 bodyReader :: (WebAppState s, MonadIO m) => RouteT s m (IO ByteString)
-bodyReader = RouteT $ \_ _ bdy req ->
-              return $ Right (act bdy $ requestBody req,Nothing,[],Nothing)
-  where
-    act tv f = do
-      c <- f
-      atomically $ readTVar tv >>= writeTVar tv . BL.Chunk c
-      return c
+bodyReader = RouteT $ \_ _ _ r -> return $ Right (requestBody r,Nothing,[],Nothing)
 
--- |Get the body as a lazy byteString. Can be used after
--- reading individual chunks from the HTTP body.
+-- |Read the request body as a lazy 'ByteString'.
+-- Incompatible with 'bodyReader'.
 body :: (WebAppState s, MonadIO m) => RouteT s m BL.ByteString
-body = RouteT $ \_ _ bdy req -> liftIO $ do
-  remainder <- lazyRead $ requestBody req
-  atomically $ do
-    alreadyRead <- readTVar bdy
-    let whole = alreadyRead <> remainder
-    writeTVar bdy whole
-    return $ Right (whole,Nothing,[],Nothing)
+body = do
+  tvar <- bodyTVar
+  act <- fmap requestBody request
+  liftIO $ persisted tvar act
   where
+    bodyTVar = RouteT $ \_ _ b _ -> return $ Right (b,Nothing,[],Nothing)
+    persisted tvar act = do
+      remaining <- lazyRead act
+      atomically $ do
+        alreadyRead <- readTVar tvar
+        writeTVar tvar $ alreadyRead <> remaining
+        readTVar tvar
     lazyRead f = unsafeInterleaveIO $ do
       c <- f
       if B.null c
@@ -306,7 +312,7 @@ body = RouteT $ \_ _ bdy req -> liftIO $ do
         else BL.Chunk c <$> (lazyRead f)
 
 urlencodedBody :: (WebAppState s, MonadIO m) => RouteT s m Query
-urlencodedBody = mkQueryDict . T.decodeUtf8 . BL.toStrict <$> body
+urlencodedBody = parseQuery . BL.toStrict <$> body
 
 path :: (WebAppState s, Monad m) => RouteT s m Path
 path = RouteT $ \_ pth _ _ -> return $ Right (pth,Nothing,[],Nothing)

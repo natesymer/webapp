@@ -27,17 +27,14 @@ module Web.App.Path
   splitPath,
   mkPathInfo,
   joinPath,
-  mkQueryDict,
   pathCaptures
 )
 where
 
-import Network.HTTP.Types (Query)
-import Network.HTTP.Types.URI (parseQuery)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.ByteString.Lazy as BL
+import qualified Data.ByteString as B
 import Text.Regex.Posix
 import Data.List
 import Data.String
@@ -105,14 +102,6 @@ joinPath :: PathInfo -- ^ pathInfo
          -> Text
 joinPath = mconcat . (:) "/" . intersperse "/"
 
--- |Return an assoc list containing key-value pairs
--- as expressed in @queryString@.
-mkQueryDict :: Text -- queryString
-            -> Query
-mkQueryDict pth
-  | T.null pth = []
-  | otherwise = parseQuery $ T.encodeUtf8 pth
-
 {- Captures & Regex Captures -}
       
 -- |Returns path captures by comparing @path@ to @pathInfo@.
@@ -122,9 +111,9 @@ pathCaptures :: Path -- ^ path
 pathCaptures (LiteralPath _) _ = []
 pathCaptures (RegexPath r) pin = maybe [] (\(_,x,_,xs) -> f (x:xs)) matched
   where
-    f = numberList . map (T.decodeUtf8 . BL.toStrict)
-    matched :: Maybe (BL.ByteString,BL.ByteString,BL.ByteString,[BL.ByteString])
-    matched = matchM r $ BL.fromStrict $ T.encodeUtf8 $ joinPath pin
+    f = numberList . map T.decodeUtf8
+    matched :: Maybe (B.ByteString,B.ByteString,B.ByteString,[B.ByteString])
+    matched = matchM r $ T.encodeUtf8 $ joinPath pin
 
 pathCaptures (CapturedPath cap) pin = f [] cap pin
   where
