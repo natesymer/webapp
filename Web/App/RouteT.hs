@@ -171,7 +171,11 @@ instance (WebAppState s, Monad m) => MonadWriter Stream (RouteT s m) where
 
 {- Route Evaluation -}
 
-findRoute :: (WebAppState s, Monad m) => [Route s m] -> Request -> Maybe ([Route s m],Route s m)
+-- |Find the first route that can respond to @request@ in @routes@.
+findRoute :: (WebAppState s, Monad m)
+          => [Route s m] -- ^ routes
+          -> Request -- ^ request
+          -> Maybe ([Route s m],Route s m)
 findRoute [] _ = Nothing
 findRoute (x@(pd,pth,_):xs) req
   | pd req && pathMatches pth (pathInfo req) = Just (xs,x)
@@ -181,37 +185,40 @@ findRoute (x@(pd,pth,_):xs) req
 
 -- |Halt route evaluation and provide the given 'Status',
 -- 'ResponseHeaders', and 'Stream'.
-halt :: (WebAppState s, Monad m) => Status -> ResponseHeaders -> Stream -> RouteT s m ()
-halt s h b = RouteT $ \_ _ _ _ -> return $ Left $ InterruptHalt (Just s) h (Just b)
+halt :: (WebAppState s, Monad m)
+     => Status -- ^ status with which to terminate
+     -> ResponseHeaders -- ^ headers with which to terminate
+     -> Stream -- ^ body with which to terminate
+     -> RouteT s m a
+halt s h b = act >> let x = x in x
+  where act = RouteT $ \_ _ _ _ ->
+                return $ Left $ InterruptHalt (Just s) h (Just b)
   
 -- |Halt route evaluation and provide the accumulated 'Status',
 -- 'ResponseHeaders', and 'Stream'.
-halt' :: (WebAppState s, Monad m) => RouteT s m ()
-halt' = RouteT $ \_ _ _ _ -> return $ Left $ InterruptHalt Nothing [] Nothing
+halt' :: (WebAppState s, Monad m) => RouteT s m a
+halt' = act >> let x = x in x
+  where act = RouteT $ \_ _ _ _ ->
+                return $ Left $ InterruptHalt Nothing [] Nothing
 
 -- |Halt route evaluation and move onto the next
 -- route that passes.
-next :: (WebAppState s, Monad m) => RouteT s m ()
-next = RouteT $ \_ _ _ _ -> return $ Left InterruptNext
+next :: (WebAppState s, Monad m) => RouteT s m a
+next = act >> let x = x in x
+  where act = (RouteT $ \_ _ _ _ -> return $ Left InterruptNext)
 
 -- |Write a 'Stream' to the response body.
-writeBody :: (WebAppState s, Monad m, ToStream w)
-          => w -- ^ builder to write
-          -> RouteT s m ()
+writeBody :: (WebAppState s, Monad m, ToStream w) => w -> RouteT s m ()
 writeBody w = RouteT $ \_ _ _ _ ->
   return $ Right ((),Nothing,[],Just $ stream w)
   
 -- |Same as 'writeBody', but designed for use
 -- with literals via OverloadedStrings
-writeBodyBytes :: (WebAppState s, Monad m)
-               => ByteString
-               -> RouteT s m ()
+writeBodyBytes :: (WebAppState s, Monad m) => ByteString -> RouteT s m ()
 writeBodyBytes = writeBody
   
 -- |Write a JSON object to the response body.
-writeJSON :: (WebAppState s, Monad m, ToJSON j)
-          => j -- ^ json object to write
-          -> RouteT s m ()
+writeJSON :: (WebAppState s, Monad m, ToJSON j) => j -> RouteT s m ()
 writeJSON = writeBody . encode
 
 -- |Get the 'Request' being served.
@@ -255,17 +262,16 @@ params = fmap (mconcat . catMaybes) $ sequence [cap,bdy,q]
     q = Just . queryString <$> request
 
 -- |Get a specific header. Will call 'next' if the parameter isn't present.
-param :: (WebAppState s, MonadIO m, Parameter a, Read a, Show a) => ByteString -> RouteT s m a
+param :: (WebAppState s, MonadIO m, Parameter a) => ByteString -> RouteT s m a
 param k = params >>= f . fmap (fmap maybeRead) . lookup k
   where f (Just (Just (Just v))) = return v
-        f _ = next >> (return $ read "")
+        f _ = next
         
 -- |Get a specific header. Will not interfere with route evaluation.
-maybeParam :: (WebAppState s, MonadIO m, Parameter a, Read a) => ByteString -> RouteT s m (Maybe a)
+maybeParam :: (WebAppState s, MonadIO m, Parameter a) => ByteString -> RouteT s m (Maybe a)
 maybeParam k = f . lookup k <$> params
-  where
-    f (Just (Just v)) = maybeRead v
-    f _ = Nothing
+  where f (Just (Just v)) = maybeRead v
+        f _ = Nothing
 
 -- |Get an action that reads a chunk from the HTTP body. Can be used
 -- before 'body'. A chunk is not read until it's needed (non-strictness).

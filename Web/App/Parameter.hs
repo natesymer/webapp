@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, ViewPatterns #-}
 
 module Web.App.Parameter
 (
@@ -6,23 +6,21 @@ module Web.App.Parameter
 )
 where
   
+import GHC.Float (double2Float)
 import Data.Maybe
-  
 import Data.Word
 import Data.Int
+import Data.Char
 import qualified Data.Text as T (Text)
 import qualified Data.Text.Encoding as T (decodeUtf8)
 import qualified Data.Text.Lazy as TL (Text)
 import qualified Data.Text.Lazy.Encoding as TL (decodeUtf8)
-import qualified Data.ByteString.Char8 as B (ByteString,unpack,length,head,null,split)
+import qualified Data.ByteString.Char8 as B -- (ByteString,unpack,length,head,null,split,readInt)
 import qualified Data.ByteString.Lazy.Char8 as BL (ByteString,fromStrict)
   
 class Parameter a where
-  maybeRead :: (Read a) => B.ByteString -> Maybe a
-  maybeRead s = case [ x | (x,"") <- reads (B.unpack s) ] of
-    [x] -> Just x
-    _ -> Nothing
-  maybeReadList :: (Read a) => B.ByteString -> [a]
+  maybeRead :: B.ByteString -> Maybe a
+  maybeReadList :: B.ByteString -> [a]
   maybeReadList = catMaybes . map maybeRead . B.split ','
     
 instance Parameter () where
@@ -67,21 +65,52 @@ instance Parameter Char where
     | otherwise = Nothing
   maybeReadList = B.unpack
     
-instance (Parameter a, Read a) => Parameter [a] where
+instance (Parameter a) => Parameter [a] where
   maybeRead = Just . maybeReadList
   
-instance Parameter Double
-instance Parameter Float
+instance Parameter Double where
+  maybeRead "" = Nothing
+  maybeRead (B.uncons -> Just ('-',xs)) = negate <$> maybeRead xs
+  maybeRead (B.uncons -> Just ('.',v)) = (*) e <$> v''
+    where v'  = B.takeWhile isDigit v
+          v'' = fromIntegral . fst <$> B.readInt v'
+          e   = 10**(negate $ fromIntegral $ B.length v')
+  maybeRead x = (+) (fromMaybe 0 $ maybeRead xs) <$> x''
+    where (x',xs) = B.span isDigit x
+          x''     = fromInteger . fst <$> B.readInteger x'
 
-instance Parameter Int
-instance Parameter Int8
-instance Parameter Int16
-instance Parameter Int32
-instance Parameter Int64
-instance Parameter Integer  
+instance Parameter Float where
+  maybeRead = fmap double2Float . maybeRead
 
-instance Parameter Word
-instance Parameter Word8
-instance Parameter Word16
-instance Parameter Word32
-instance Parameter Word64
+instance Parameter Integer where
+  maybeRead = fmap fst . B.readInteger
+
+instance Parameter Int where
+  maybeRead = fmap fst . B.readInt
+
+instance Parameter Int8 where
+  maybeRead = fmap (fromInteger . fst) . B.readInteger
+  
+instance Parameter Int16 where
+  maybeRead = fmap (fromInteger . fst) . B.readInteger
+  
+instance Parameter Int32 where
+  maybeRead = fmap (fromInteger . fst) . B.readInteger
+  
+instance Parameter Int64 where
+  maybeRead = fmap (fromInteger . fst) . B.readInteger
+
+instance Parameter Word where
+  maybeRead = fmap (fromInteger . fst) . B.readInteger
+  
+instance Parameter Word8 where
+  maybeRead = fmap (fromInteger . fst) . B.readInteger
+  
+instance Parameter Word16 where
+  maybeRead = fmap (fromInteger . fst) . B.readInteger
+  
+instance Parameter Word32 where
+  maybeRead = fmap (fromInteger . fst) . B.readInteger
+  
+instance Parameter Word64 where
+  maybeRead = fmap (fromInteger . fst) . B.readInteger

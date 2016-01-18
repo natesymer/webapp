@@ -32,7 +32,7 @@ app = mconcat [
   get "/subtract" subtr,
   get "/reset" reset,
   -- Extended example routes
-  get "/fallthrough" ,
+  get "/fallthrough" fallthrough,
   get "/message" message,
   get "/captured/:id" withC,
   get (regex "/assets/(.*)") withR,
@@ -61,7 +61,8 @@ app = mconcat [
       writeBodyBytes "writeBodyBytes \"This is a subpath,\\n\"\n"
       writeBodyBytes "writeBodyBytes \"hear it roar!\""
     withC = do
-      param "id" >>= \(v :: Integer) -> writeBody $ show v
+      param "id" >>= \(v :: Double) -> writeBody $ show v
+      liftIO $ print "after"
     withR = do
       writeBodyBytes "asset path: "
       param "1" >>= writeBodyBytes

@@ -17,11 +17,10 @@ module Web.App.Middleware.Gzip
 where
 
 import Network.Wai
-import Network.Wai.Header
 import Network.Wai.Internal
 import Data.Maybe (fromMaybe,isJust)
 import qualified Codec.Compression.GZip as GZIP (compress)
-import qualified Data.ByteString.Char8 as B (ByteString,isInfixOf,break,drop,dropWhile)
+import qualified Data.ByteString.Char8 as B (ByteString,readInteger,isInfixOf,break,drop,dropWhile)
 import Blaze.ByteString.Builder (toLazyByteString)
 import Blaze.ByteString.Builder.ByteString (fromLazyByteString)
 
@@ -39,6 +38,7 @@ gzip minLen app env sendResponse = app env f
     isMSIE6 = fromMaybe False . fmap (B.isInfixOf "MSIE 6") . lookup "User-Agent" . requestHeaders $ env
     isEncoded = isJust . lookup "Content-Encoding" . responseHeaders
     isBigEnough = maybe True ((<=) minLen) . contentLength . responseHeaders
+    contentLength hdrs = lookup "Content-Length" hdrs >>= fmap fst . B.readInteger
 
 -- TODO: ensure original flushing action is eval'd
 compressResponse :: Response -> (Response -> IO a) -> IO a

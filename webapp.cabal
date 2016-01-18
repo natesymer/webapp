@@ -14,9 +14,7 @@ Build-type:          Simple
 Cabal-version:       >= 1.10
 Description:         See README.md
 
-Extra-source-files:
-    README.md
-    CHANGELOG.md
+Extra-source-files: README.md CHANGELOG.md
 
 Library
   build-tools:       hsc2hs
@@ -39,36 +37,22 @@ Library
                      Web.App.Internal.Privileges
   default-language:  Haskell2010
   build-depends:     base >= 4.8.0.0 && <= 4.8.1.0,
+                     bytestring,
+                     base16-bytestring,
+                     text,
                      mtl,
                      stm,
                      transformers,
                      wai,
-                     wai-extra,
                      warp,
                      warp-tls,
                      network,
                      streaming-commons,
                      regex-compat,
                      http-types,
-                     bytestring,
-                     data-default,
-                     time,
-                     unordered-containers,
-                     attoparsec,
                      unix,
-                     fsnotify,
-                     filepath,
-                     hashtables,
-                     base16-bytestring,
                      blaze-builder,
                      zlib,
-                     cryptohash,
-                     text,
-                     hjsmin,
-                     css-text,
-                     mime-types,
-                     filepath,
-                     directory,
                      optparse-applicative,
                      aeson,
                      case-insensitive
