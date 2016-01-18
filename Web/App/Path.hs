@@ -83,7 +83,7 @@ pathMatches (CapturedPath pin) pin2 = f pin pin2
 
 -- |Returns true if given path is the root.
 isRoot :: Path -> Bool
-isRoot (RegexPath _) = False -- regexes are *assumed* to not match "/".
+isRoot (RegexPath ex) = matchTest ex ("/" :: String)
 isRoot (LiteralPath pin) = null pin
 isRoot (CapturedPath pin) = null pin
 
@@ -92,8 +92,8 @@ isRoot (CapturedPath pin) = null pin
 -- |Splits path into (path,queryString).
 splitPath :: Text -- ^ path
           -> (Text,Text)
-splitPath pth = (p,if T.null q then q else T.tail q)
-  where (p,q) = T.span (/= '?') pth
+splitPath pth = (p,T.drop 1 q)
+  where (p,q) = T.break (== '?') pth
 
 -- |Split @path@ into a pathInfo list.
 mkPathInfo :: Text -- ^ path

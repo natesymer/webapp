@@ -15,7 +15,7 @@ import qualified Data.Text as T (Text)
 import qualified Data.Text.Encoding as T (decodeUtf8)
 import qualified Data.Text.Lazy as TL (Text)
 import qualified Data.Text.Lazy.Encoding as TL (decodeUtf8)
-import qualified Data.ByteString.Char8 as B -- (ByteString,unpack,length,head,null,split,readInt)
+import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL (ByteString,fromStrict)
   
 class Parameter a where
@@ -29,23 +29,19 @@ instance Parameter () where
     | otherwise = Nothing
     
 instance Parameter Bool where
-  maybeRead "True" = Just True
-  maybeRead "true" = Just True
-  maybeRead "T" = Just True
-  maybeRead "t" = Just True
-  maybeRead "Yes" = Just True
-  maybeRead "yes" = Just True
-  maybeRead "Y" = Just True
-  maybeRead "y" = Just True
-  maybeRead "False" = Just False
-  maybeRead "false" = Just False
-  maybeRead "F" = Just False
-  maybeRead "f" = Just False
-  maybeRead "No" = Just False
-  maybeRead "no" = Just False
-  maybeRead "N" = Just False
-  maybeRead "n" = Just False
-  maybeRead _ = Nothing
+  maybeRead = f . B.map toLower
+    where
+      f "true" = Just True
+      f "false" = Just False
+      f "t" = Just True
+      f "f" = Just False
+      f "yes" = Just True
+      f "no" = Just False
+      f "y" = Just True
+      f "n" = Just False
+      f "on" = Just True -- HTML checkboxes
+      f "off" = Just False -- HTML checkboxes
+      f _ = Nothing
 
 instance Parameter T.Text where
   maybeRead = Just . T.decodeUtf8
