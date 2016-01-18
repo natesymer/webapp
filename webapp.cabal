@@ -48,7 +48,7 @@ Library
                      warp-tls,
                      network,
                      streaming-commons,
-                     regex-compat,
+                     regex-posix,
                      http-types,
                      unix,
                      blaze-builder,

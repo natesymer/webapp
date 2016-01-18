@@ -58,7 +58,7 @@ toApplication :: (WebAppState s, MonadIO m, MonadIO n)
                     IO ()) -- ^ teardown action; call when shutting down app server
 toApplication runToIO webapp = do
   st <- liftIO $ newTVarIO =<< initState
-  let ~(rts,mws) = runWebApp webapp
+  let (rts,mws) = runWebApp webapp
       app = foldl (flip ($)) (mkApp st rts) mws
       teardown = readTVarIO st >>= destroyState
   return (app, teardown)

@@ -115,11 +115,11 @@ evalRouteT :: (WebAppState s, MonadIO m)
            -> m (RouteResult)
 evalRouteT act st pth req = do
   bdy <- liftIO $ newTVarIO BL.Empty
-  v <- runRouteT act st pth bdy req
-  case v of
-    Left InterruptNext -> return Nothing
-    Left (InterruptHalt s h b) -> return $ Just (fromMaybe status200 s,h,fromMaybe mempty b)
-    Right ~(_,s,h,b) -> return $ Just (fromMaybe status200 s,h,fromMaybe mempty b)
+  f <$> runRouteT act st pth bdy req
+  where
+    f (Left InterruptNext) = Nothing
+    f (Left (InterruptHalt s h b)) = Just (fromMaybe status200 s,h,fromMaybe mempty b)
+    f (Right ~(_,s,h,b)) = Just (fromMaybe status200 s,h,fromMaybe mempty b)
             
 instance (WebAppState s, Functor m) => Functor (RouteT s m) where
   fmap f m = RouteT $ \st pth bdy req -> fmap apply $ runRouteT m st pth bdy req
@@ -153,8 +153,10 @@ instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
   liftIO = lift . liftIO
   
 instance (WebAppState s, MonadIO m) => MonadState s (RouteT s m) where
-  get = RouteT $ \st _ _ _ -> Right . (,Nothing,[],Nothing) <$> (liftIO $ atomically $ readTVar st)
-  put v = RouteT $ \st _ _ _ -> Right . (,Nothing,[],Nothing) <$> (liftIO $ atomically $ writeTVar st v)
+  get = RouteT $ \st _ _ _ ->
+    Right . (,Nothing,[],Nothing) <$> (liftIO $ readTVarIO st)
+  put v = RouteT $ \st _ _ _ ->
+    Right . (,Nothing,[],Nothing) <$> (liftIO $ atomically $ writeTVar st v)
 
 instance (WebAppState s, Monad m) => MonadWriter Stream (RouteT s m) where
   tell s = RouteT $ \_ _ _ _ -> return $ Right ((),Nothing,[],Just s)
@@ -167,7 +169,8 @@ instance (WebAppState s, Monad m) => MonadWriter Stream (RouteT s m) where
     v <- runRouteT act st pth bdy req
     case v of
       Left e -> return $ Left e
-      Right ((a,f),_,_,mw) -> return $ Right (a,Nothing,[],maybe mempty (Just . f) mw)
+      Right ((a,f),_,_,mw) ->
+        return $ Right (a,Nothing,[],maybe mempty (Just . f) mw)
 
 {- Route Evaluation -}
 
@@ -250,12 +253,13 @@ header k = lookup (mk k) <$> headers
 params :: (WebAppState s, MonadIO m) => RouteT s m Query
 params = fmap (mconcat . catMaybes) $ sequence [cap,bdy,q]
   where
-    cap = RouteT $ \_ pth _ req -> return $ Right (Just $ map toQuery $ pathCaptures pth (pathInfo req),Nothing,[],Nothing)
+    cap = RouteT $ \_ pth _ req ->
+            return $ Right (Just $ map toQuery $ pathCaptures pth $ pathInfo req,Nothing,[],Nothing)
       where toQuery (a,b) = (T.encodeUtf8 a, Just $ T.encodeUtf8 b)
     bdy = do
       h <- requestHeaders <$> request
       case lookup (mk "Content-Type") h of
-        Just "application/x-www-form-urlencoded" -> fmap (Just . parseQuery . BL.toStrict) body
+        Just "application/x-www-form-urlencoded" -> Just . parseQuery . BL.toStrict <$> body
         Just "multipart/form-data" -> return Nothing -- TODO: implement me
         Just _ -> return Nothing
         Nothing -> return Nothing
@@ -276,7 +280,8 @@ maybeParam k = f . lookup k <$> params
 -- |Get an action that reads a chunk from the HTTP body. Can be used
 -- before 'body'. A chunk is not read until it's needed (non-strictness).
 bodyReader :: (WebAppState s, MonadIO m) => RouteT s m (IO ByteString)
-bodyReader = RouteT $ \_ _ bdy req -> return $ Right (act bdy (requestBody req),Nothing,[],Nothing)
+bodyReader = RouteT $ \_ _ bdy req ->
+              return $ Right (act bdy $ requestBody req,Nothing,[],Nothing)
   where
     act tv f = do
       c <- f
@@ -301,7 +306,7 @@ body = RouteT $ \_ _ bdy req -> liftIO $ do
         else BL.Chunk c <$> (lazyRead f)
 
 urlencodedBody :: (WebAppState s, MonadIO m) => RouteT s m Query
-urlencodedBody = (mkQueryDict . T.decodeUtf8 . BL.toStrict) <$> body
+urlencodedBody = mkQueryDict . T.decodeUtf8 . BL.toStrict <$> body
 
 path :: (WebAppState s, Monad m) => RouteT s m Path
 path = RouteT $ \_ pth _ _ -> return $ Right (pth,Nothing,[],Nothing)

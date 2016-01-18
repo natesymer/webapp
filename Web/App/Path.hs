@@ -28,8 +28,7 @@ module Web.App.Path
   mkPathInfo,
   joinPath,
   mkQueryDict,
-  pathCaptures,
-  pathNamedCaptures
+  pathCaptures
 )
 where
 
@@ -38,8 +37,8 @@ import Network.HTTP.Types.URI (parseQuery)
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import Text.Regex
-import Data.Maybe
+import qualified Data.ByteString.Lazy as BL
+import Text.Regex.Posix
 import Data.List
 import Data.String
 
@@ -67,11 +66,11 @@ captured = CapturedPath . mkPathInfo
 
 -- |Construct a regex 'Path'.
 regex :: Text -> Path
-regex = RegexPath . mkRegex . T.unpack
-    
+regex = RegexPath . makeRegex . T.encodeUtf8
+
 -- |Returns @True@ if the given 'Path' matches the given 'PathInfo'
 pathMatches :: Path -> PathInfo -> Bool
-pathMatches (RegexPath ex) pin = isJust $ matchRegex ex $ T.unpack $ joinPath pin
+pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPath pin
 pathMatches (LiteralPath pin) pin2 = pin == pin2
 pathMatches (CapturedPath pin) pin2 = f pin pin2
   where f [] [] = True
@@ -101,7 +100,7 @@ mkPathInfo :: Text -- ^ path
            -> PathInfo
 mkPathInfo = filter (not . T.null) . T.splitOn "/" . fst . splitPath
 
--- |Join a PathInfo into a path.
+-- |Join pathInfo into a 'Text'ual path.
 joinPath :: PathInfo -- ^ pathInfo
          -> Text
 joinPath = mconcat . (:) "/" . intersperse "/"
@@ -121,9 +120,12 @@ pathCaptures :: Path -- ^ path
              -> PathInfo -- ^ pathInfo
              -> [(Text,Text)]
 pathCaptures (LiteralPath _) _ = []
-pathCaptures (RegexPath r) pin = case matchRegexAll r (T.unpack $ joinPath pin) of
-  Just (_,matched,_,groups) -> numberList $ (T.pack matched):(map T.pack groups)
-  Nothing -> []
+pathCaptures (RegexPath r) pin = maybe [] (\(_,x,_,xs) -> f (x:xs)) matched
+  where
+    f = numberList . map (T.decodeUtf8 . BL.toStrict)
+    matched :: Maybe (BL.ByteString,BL.ByteString,BL.ByteString,[BL.ByteString])
+    matched = matchM r $ BL.fromStrict $ T.encodeUtf8 $ joinPath pin
+
 pathCaptures (CapturedPath cap) pin = f [] cap pin
   where
     f acc [] [] = acc
@@ -136,20 +138,3 @@ pathCaptures (CapturedPath cap) pin = f [] cap pin
       
 numberList :: [Text] -> [(Text,Text)]
 numberList = zipWith (\a b -> (T.pack $ show a, b)) ([0..] :: [Integer])
-
--- |Returns named path captures by comparing @path@ to @pathInfo@.
-pathNamedCaptures :: Path -- ^ path
-                  -> PathInfo -- ^ pathInfo
-                  -> [(Text,Text)]
-pathNamedCaptures (LiteralPath _) _ = []
-pathNamedCaptures (RegexPath _) _ = [] -- TODO: named captures
-pathNamedCaptures (CapturedPath cap) pin = f [] cap pin
-  where
-    f acc [] [] = acc
-    f _   _  [] = []
-    f _   [] _  = []
-    f acc (c:cs) (p:ps)
-      | T.head c == ':' = f ((T.tail c,p):acc) cs ps
-      | p == c = f acc cs ps
-      | otherwise = []
-
