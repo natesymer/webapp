@@ -48,28 +48,32 @@ flusher = Stream $ \_ f -> f
 
 -- |Turn data into a WAI stream.
 class ToStream a where
-  stream :: a -> Stream
+  stream :: Bool -> a -> Stream -- ^ Stream with the option to flush afterward
+  stream' :: a -> Stream -- ^ Stream and flush immediately
+  stream' = stream True
 
 instance (ToStream a) => ToStream [a] where
-  stream = mconcat . map stream
+  stream True b = (stream False b) <> flusher
+  stream False b = mconcat $ map (stream False) b
   
 instance ToStream () where
-  stream _ = mempty
+  stream _ _ = mempty
   
 instance ToStream Builder where
-  stream b = Stream $ \w f -> w b >> f
+  stream False b = Stream $ \w _ -> w b
+  stream True b = Stream $ \w f -> w b >> f
 
 instance ToStream Char where
-  stream = stream . fromChar
+  stream f = stream f . fromChar
 
 instance ToStream T.Text where
-  stream = stream . T.encodeUtf8
+  stream f = stream f . T.encodeUtf8
 
 instance ToStream TL.Text where
-  stream = stream . TL.encodeUtf8
+  stream f = stream f . TL.encodeUtf8
   
 instance ToStream B.ByteString where
-  stream = stream . fromByteString
+  stream f = stream f . fromByteString
   
 instance ToStream BL.ByteString where
-  stream = stream . fromLazyByteString
+  stream f = stream f . fromLazyByteString

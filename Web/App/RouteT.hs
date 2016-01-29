@@ -215,7 +215,7 @@ next = act >> let x = x in x -- second action will never be evaluated
 -- |Write a 'Stream' to the response body.
 writeBody :: (WebAppState s, Monad m, ToStream w) => w -> RouteT s m ()
 writeBody w = RouteT $ \_ _ _ _ ->
-  return $ Right ((),Nothing,[],Just $ stream w)
+  return $ Right ((),Nothing,[],Just $ stream' w)
   
 -- |Same as 'writeBody', but designed for use
 -- with literals via OverloadedStrings
