@@ -48,8 +48,8 @@ flusher = Stream $ \_ f -> f
 
 -- |Turn data into a WAI stream.
 class ToStream a where
-  stream :: Bool -> a -> Stream -- ^ Stream with the option to flush afterward
-  stream' :: a -> Stream -- ^ Stream and flush immediately
+  stream :: Bool -> a -> Stream -- ^ stream with the option to flush
+  stream' :: a -> Stream -- ^ stream and flush
   stream' = stream True
 
 instance (ToStream a) => ToStream [a] where

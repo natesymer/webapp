@@ -29,6 +29,7 @@ module Web.App.Main
 )
 where
 
+import Web.App.Middleware
 import Web.App.WebApp
 import Web.App.RouteT (RouteResult)
 import Web.App.State
@@ -42,10 +43,11 @@ import Control.Monad.IO.Class
 import Control.Applicative
 import Options.Applicative
 import System.Environment (getArgs)
+import System.Posix
 
 data Cmd
   = StartCommand {
-     startCmdDaemonize :: Bool,
+    _startCmdDaemonize :: Bool,
     _startCmdInsecure :: Bool,
     _startCmdPort :: Int,
     _startCmdHTTPSSLCert :: FilePath,
@@ -98,20 +100,25 @@ webappMain runToIO app title utilParser utilf = getArgs >>= getCommandArgs utilP
   where
     processArgs (Right cmd) = f cmd
     processArgs (Left utils) = utilf utils
-    f c@(StartCommand True _ _ _ _ _ _ pidPath) = do
-      daemonize pidPath $ f $ c { startCmdDaemonize = False }
-    f (StartCommand False False port crt key out err _) = do
-      redirectStdout out
-      redirectStderr err
-      startHTTPS app runToIO port crt key
-    f (StartCommand False True port _ _ out err _) = do
-      redirectStdout out
-      redirectStderr err
-      startHTTP app runToIO port
+    f (StartCommand True i p c k o e pidPath) = daemonize pidPath $ start i p c k o e
+    f (StartCommand False i p c k o e _) = start i p c k o e
     f (StopCommand pidPath) = daemonKill 4 pidPath
     f (StatusCommand pidPath) = daemonRunning pidPath >>= putStrLn . showStatus
     showStatus True = "running"
     showStatus False = "stopped"
+    start insecure port cert key out err = do
+      bindTCP port $ \sock -> do
+        -- drop privileges after binding to a port
+        getRealGroupID >>= setEffectiveGroupID
+        getRealUserID >>= setEffectiveUserID
+        -- redirect I/O
+        redirectStdout out
+        redirectStderr err
+        -- serve webapp
+        serve sock (if insecure then [gzip 860] else [gzip 860,forceSSL port])
+      where serveFunc True = runInsecure
+            serveFunc False = runSecure cert key
+            serve sock = serveApp (serveFunc insecure sock) runToIO app port
 
 getCommandArgs :: Maybe (Parser a) -> String -> [String] -> IO (Either a Cmd)
 getCommandArgs utilParser title args = do

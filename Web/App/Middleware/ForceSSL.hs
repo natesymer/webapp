@@ -21,9 +21,10 @@ import Data.Maybe (fromJust)
 import Data.Monoid
 import Network.HTTP.Types.Status (status301)
 
+-- TODO: specify port
 -- |Middleware to force SSL traffic.
-forceSSL :: Middleware
-forceSSL app = \req respond -> if isSecure req
+forceSSL :: Int -> Middleware
+forceSSL port app = \req respond -> if isSecure req
   then app req respond
   else let url = "https://"
                <> (fromJust $ requestHeaderHost req)

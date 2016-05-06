@@ -34,6 +34,7 @@ app = mconcat [
   -- Extended example routes
   get "/fallthrough" fallthrough,
   get "/message" message,
+  get "/teststring" streamString,
   get "/captured/:id" withC,
   get (regex "/assets/(.*)") withR,
   matchAll $ writeBodyBytes "not found!\n"]
@@ -60,6 +61,8 @@ app = mconcat [
     message = do
       writeBodyBytes "writeBodyBytes \"This is a subpath,\\n\"\n"
       writeBodyBytes "writeBodyBytes \"hear it roar!\""
+    streamString = do
+      writeBody ("this is a string" :: String)
     withC = do
       param "id" >>= \(v :: Double) -> writeBody $ show v
     withR = do

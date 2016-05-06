@@ -22,3 +22,7 @@ v 0.2.0
 	- Streaming body based around `writeBody` function
 		- Allow data structures to be streamed via the 'ToStream' typeclass.
 	- Typesafe parameter coersion
+
+v 0.2.1
+
+	- `stream` function can now optionally flush. `stream'` will always flush. This may improve list streaming functionality.
