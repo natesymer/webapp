@@ -1,5 +1,5 @@
 Name:                webapp
-Version:             0.3.1
+Version:             0.3.2
 Synopsis:            Haskell web app framework based on WAI & Warp
 Homepage:            https://github.com/fhsjaagshs/webapp
 Bug-reports:         https://github.com/fhsjaagshs/webapp/issues
