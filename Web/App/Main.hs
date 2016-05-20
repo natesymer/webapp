@@ -124,7 +124,6 @@ webappMain runToIO app extraParser extraf = parseArgs extraParser >>= either ext
       
 parseArgs :: Maybe (Parser a) -> IO (Either a Options)
 parseArgs extra = do
- --  w <- maybe 80 snd <$> getTermSize
   defaultPort <- ((=<<) readMaybe) <$> lookupEnv "PORT"
   customExecParser pprefs $ info (helper <*> parser defaultPort) fullDesc
   where
