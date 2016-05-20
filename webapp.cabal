@@ -1,5 +1,5 @@
 Name:                webapp
-Version:             0.3.3
+Version:             0.3.4
 Synopsis:            Haskell web app framework based on WAI & Warp
 Homepage:            https://github.com/fhsjaagshs/webapp
 Bug-reports:         https://github.com/fhsjaagshs/webapp/issues
@@ -17,7 +17,6 @@ Description:         See README.md
 Extra-source-files: README.md CHANGELOG.md
 
 Library
-  build-tools:       hsc2hs
   ghc-options:       -Wall -fno-warn-unused-do-bind
   Exposed-modules:   Web.App
                      Web.App.HTTP
@@ -30,9 +29,7 @@ Library
                      Web.App.RouteT
                      Web.App.Stream
                      Web.App.Main
-                     Web.App.Internal.TerminalSize
                      Web.App.WebApp
-  other-modules:     Web.App.Internal.IO
   default-language:  Haskell2010
   build-depends:     base <4.9,
                      bytestring,

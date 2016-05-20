@@ -33,10 +33,9 @@ import Web.App.WebApp
 import Web.App.RouteT (RouteResult)
 import Web.App.State
 import Web.App.HTTP
-import Web.App.Internal.IO
-import Web.App.Internal.TerminalSize
 
 import Data.Maybe
+import Control.Monad
 import Control.Monad.IO.Class
 
 import Control.Applicative
@@ -44,6 +43,9 @@ import Options.Applicative
 import System.Posix
 import System.Exit
 import System.Environment
+import System.IO
+
+import GHC.IO.Handle
 
 import Text.Read
 
@@ -93,12 +95,11 @@ webappMain runToIO app extraParser extraf = parseArgs extraParser >>= either ext
         createSession
         forkProcess $ do
           getProcessID >>= writeFile pidFile . show
-          redirectStdout $ Just "/dev/null"
-          redirectStderr $ Just "/dev/null"
-          redirectStdin $ Just "/dev/null"
-          closeFd stdInput -- close STDIN
+          redirectHandle stdout $ fromMaybe "/dev/null" o
+          redirectHandle stderr $ fromMaybe "/dev/null" e
+          redirectHandle stdin "/dev/null"
           installHandler sigHUP Ignore Nothing
-          start p c k o e
+          start p c k Nothing Nothing
         exitImmediately ExitSuccess
       exitImmediately ExitSuccess
     start port cert key out err = do
@@ -107,21 +108,28 @@ webappMain runToIO app extraParser extraf = parseArgs extraParser >>= either ext
         getRealGroupID >>= setEffectiveGroupID
         getRealUserID >>= setEffectiveUserID
         -- redirect I/O
-        redirectStdout out
-        redirectStderr err
+        maybe (return ()) (redirectHandle stdout) out
+        maybe (return ()) (redirectHandle stderr) err
         -- serve webapp
         (wai,teardown) <- toApplication runToIO app
         serveFunc cert key sock (mkWarpSettings teardown port) wai
       where serveFunc c k = fromMaybe runInsecure $ runSecure <$> c <*> k
-              
+    redirectHandle hdl path = do
+      exists <- fileExist path
+      when (not exists) $ writeFile path ""
+      h <- openFile path WriteMode
+      hDuplicateTo h hdl
+      hClose h
+      hSetBuffering hdl NoBuffering
+      
 parseArgs :: Maybe (Parser a) -> IO (Either a Options)
 parseArgs extra = do
-  w <- maybe 80 snd <$> getTermSize
+ --  w <- maybe 80 snd <$> getTermSize
   defaultPort <- ((=<<) readMaybe) <$> lookupEnv "PORT"
-  customExecParser (mkprefs w) $ info (helper <*> parser defaultPort) fullDesc
+  customExecParser pprefs $ info (helper <*> parser defaultPort) fullDesc
   where
-    mkprefs = ParserPrefs "" False False True
-    parser port = (Right <$> parseStart port) <|> (maybe empty (fmap Left) extra)
+    pprefs = ParserPrefs "" False False True 80
+    parser port = (Right <$> parseStart port) <|> (maybe empty (fmap Left) extra)--  <|> (Right <$> showHelp)
     parseStart port = Options
       <$> (optional $ strOption $ long "daemonize"  <> short 'd' <> metavar "FILEPATH" <> help "Daemonize server and write its pid to FILEPATH.")
       <*> (option auto $          long "port"       <> short 'p' <> metavar "PORT"     <> help "Run server on PORT." <> value (fromMaybe 3000 port))
