@@ -43,6 +43,9 @@ import Control.Applicative
 import Options.Applicative
 import System.Posix
 import System.Exit
+import System.Environment
+
+import Text.Read
 
 data Options = Options {
   _optionsDaemonize :: Maybe FilePath,
@@ -114,13 +117,14 @@ webappMain runToIO app extraParser extraf = parseArgs extraParser >>= either ext
 parseArgs :: Maybe (Parser a) -> IO (Either a Options)
 parseArgs extra = do
   w <- maybe 80 snd <$> getTermSize
-  customExecParser (mkprefs w) $ info (helper <*> parser) fullDesc
+  defaultPort <- ((=<<) readMaybe) <$> lookupEnv "PORT"
+  customExecParser (mkprefs w) $ info (helper <*> parser defaultPort) fullDesc
   where
     mkprefs = ParserPrefs "" False False True
-    parser = (Right <$> parseStart) <|> (maybe empty (fmap Left) extra)
-    parseStart = Options
+    parser port = (Right <$> parseStart port) <|> (maybe empty (fmap Left) extra)
+    parseStart port = Options
       <$> (optional $ strOption $ long "daemonize"  <> short 'd' <> metavar "FILEPATH" <> help "Daemonize server and write its pid to FILEPATH.")
-      <*> (option auto $          long "port"       <> short 'p' <> metavar "PORT"     <> help "Run server on PORT." <> value 3000)
+      <*> (option auto $          long "port"       <> short 'p' <> metavar "PORT"     <> help "Run server on PORT." <> value (fromMaybe 3000 port))
       <*> (optional $ strOption $ long "ssl-cert"   <> short 'c' <> metavar "FILEPATH" <> help "SSL certificate file. If a certificate and key are provided, the server will be run secure.")
       <*> (optional $ strOption $ long "ssl-key"    <> short 'k' <> metavar "FILEPATH" <> help "SSL private key file. If a certificate and key are provided, the server will be run secure.")
       <*> (optional $ strOption $ long "output-log" <> short 'o' <> metavar "FILEPATH" <> help "Redirect output to FILEPATH.")
