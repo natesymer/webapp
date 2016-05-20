@@ -119,8 +119,8 @@ parseArgs extra = do
     mkprefs = ParserPrefs "" False False True
     parser = (Right <$> parseStart) <|> (maybe empty (fmap Left) extra)
     parseStart = Options
-      <$> (option auto $          long "port"       <> short 'p' <> metavar "PORT"     <> help "Run server on PORT." <> value 3000)
-      <*> (optional $ strOption $ long "daemonize"  <> short 'd' <> metavar "FILEPATH" <> help "Daemonize server and write its pid to FILEPATH.")
+      <$> (optional $ strOption $ long "daemonize"  <> short 'd' <> metavar "FILEPATH" <> help "Daemonize server and write its pid to FILEPATH.")
+      <*> (option auto $          long "port"       <> short 'p' <> metavar "PORT"     <> help "Run server on PORT." <> value 3000)
       <*> (optional $ strOption $ long "ssl-cert"   <> short 'c' <> metavar "FILEPATH" <> help "SSL certificate file. If a certificate and key are provided, the server will be run secure.")
       <*> (optional $ strOption $ long "ssl-key"    <> short 'k' <> metavar "FILEPATH" <> help "SSL private key file. If a certificate and key are provided, the server will be run secure.")
       <*> (optional $ strOption $ long "output-log" <> short 'o' <> metavar "FILEPATH" <> help "Redirect output to FILEPATH.")
