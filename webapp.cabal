@@ -18,7 +18,7 @@ Extra-source-files: README.md CHANGELOG.md
 
 Library
   build-tools:       hsc2hs
-  ghc-options:       -Wall
+  ghc-options:       -Wall -fno-warn-unused-do-bind
   Exposed-modules:   Web.App
                      Web.App.HTTP
                      Web.App.State

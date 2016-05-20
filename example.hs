@@ -21,7 +21,7 @@ instance WebAppState Integer where
     print st
 
 main :: IO ()
-main = webappMainIO app "My Web App" (Just parseUtil) handleUtil
+main = webappMainIO app (Just parseUtil) handleUtil
 
 app :: WebApp Integer IO
 app = mconcat [

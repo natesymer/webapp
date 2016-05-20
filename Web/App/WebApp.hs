@@ -52,7 +52,7 @@ instance (WebAppState s, Monad m) => Monoid (WebApp s m) where
 
 -- |Turn a 'WebAppT' computation into a WAI 'Application'.
 toApplication :: (WebAppState s, MonadIO m, MonadIO n)
-              => (m RouteResult -> IO RouteResult) -- ^ fnc eval a monadic computation in @m@ in @IO@
+              => (m RouteResult -> IO RouteResult) -- ^ function to run WebApp-transformed monad m to IO
               -> WebApp s m -- ^ a web app
               -> n (Application, -- ^ WAI application
                     IO ()) -- ^ teardown action; call when shutting down app server
