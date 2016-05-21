@@ -44,7 +44,6 @@ mkWarpSettings :: IO () -- ^ function to be called on a SIGTERM or SIGINT
                -> Int -- ^ port
                -> Settings
 mkWarpSettings teardown port = defaultSettings {
-    settingsHTTP2Enabled = True, -- explicitly enable HTTP2 support
     settingsPort = port,
     settingsInstallShutdownHandler = \killSockets -> void $ do
       installHandler sigTERM (handler $ killSockets >> teardown) Nothing
