@@ -23,7 +23,6 @@ Library
                      Web.App.State
                      Web.App.Middleware
                      Web.App.Middleware.Gzip
-                     Web.App.Middleware.ForceSSL
                      Web.App.Parameter
                      Web.App.Path
                      Web.App.RouteT

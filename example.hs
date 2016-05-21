@@ -25,6 +25,7 @@ main = webappMainIO app (Just parseUtil) handleUtil
 
 app :: WebApp Integer IO
 app = mconcat [
+  middleware $ gzip 0,
   -- Counter routes
   get "/" root,
   get "/add" add,
