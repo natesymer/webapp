@@ -35,6 +35,7 @@ import Web.App.State
 import Web.App.HTTP
 
 import Data.Maybe
+import Data.Monoid
 import Control.Monad
 import Control.Monad.IO.Class
 
@@ -127,7 +128,7 @@ parseArgs extra = do
   defaultPort <- ((=<<) readMaybe) <$> lookupEnv "PORT"
   customExecParser pprefs $ info (helper <*> parser defaultPort) fullDesc
   where
-    pprefs = ParserPrefs "" False False True 80
+    pprefs = ParserPrefs "" False False True True 80
     parser port = (Right <$> parseStart port) <|> (maybe empty (fmap Left) extra)--  <|> (Right <$> showHelp)
     parseStart port = Options
       <$> (optional $ strOption $ long "daemonize"  <> short 'd' <> metavar "FILEPATH" <> help "Daemonize server and write its pid to FILEPATH.")

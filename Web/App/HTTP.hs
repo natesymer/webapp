@@ -29,7 +29,7 @@ import Network.Wai (Application)
 import Network.Wai.Handler.Warp (defaultSettings,runSettingsSocket,Port)
 import Network.Wai.Handler.WarpTLS (tlsSettings,runTLSSocket,TLSSettings(..),OnInsecure(..))
 import Network.Wai.Handler.Warp.Internal
-import Network.Socket (sClose,withSocketsDo,Socket)
+import Network.Socket (close,withSocketsDo,Socket)
 import Data.Streaming.Network (bindPortTCP)
 import Control.Exception (bracket)
 
@@ -37,7 +37,7 @@ import System.Exit
 import System.Posix
 
 bindTCP :: Port -> (Socket -> IO ()) -> IO ()
-bindTCP port f = withSocketsDo $ bracket (bindPortTCP port "*4") sClose f
+bindTCP port f = withSocketsDo $ bracket (bindPortTCP port "*4") close f
 
 -- |Build a Warp Settings struct
 mkWarpSettings :: IO () -- ^ function to be called on a SIGTERM or SIGINT
@@ -59,7 +59,7 @@ runSecure :: FilePath -- ^ 'FilePath' to an SSL certificate
           -> Application -- ^ WAI application
           -> IO ()
 runSecure cert key sock set app = do
-  settingsInstallShutdownHandler set (sClose sock) -- ignored by Warp's @runTLSSocket@
+  settingsInstallShutdownHandler set (close sock) -- ignored by Warp's @runTLSSocket@
   runTLSSocket tset set sock app
   where tset = (tlsSettings cert key) { onInsecure = AllowInsecure }
 
