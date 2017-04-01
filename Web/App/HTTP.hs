@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, RankNTypes, ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 {-|
 Module      : Web.App.HTTP
