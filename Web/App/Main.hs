@@ -20,6 +20,8 @@ main = webappMain' app "My Application!"
 
 -}
 
+{-# LANGUAGE TupleSections #-}
+
 module Web.App.Main
 (
   webappMain,
@@ -104,17 +106,15 @@ webappMain runToIO app extraParser extraf = parseArgs extraParser >>= either ext
         exitImmediately ExitSuccess
       exitImmediately ExitSuccess
     start port cert key out err = do
-      bindTCP port $ \sock -> do
-        -- drop privileges after binding to a port
-        getRealGroupID >>= setEffectiveGroupID
-        getRealUserID >>= setEffectiveUserID
-        -- redirect I/O
-        maybe (return ()) (redirectHandle stdout) out
-        maybe (return ()) (redirectHandle stderr) err
-        -- serve webapp
-        (wai,teardown) <- toApplication runToIO app
-        serveFunc cert key sock (mkWarpSettings teardown port) wai
-      where serveFunc c k = fromMaybe runInsecure $ runSecure <$> c <*> k
+      (wai, teardown) <- toApplication runToIO app
+      runServer ((,) <$> cert <*> key) port (pre out err) teardown wai
+      where pre out err = do
+              -- drop privileges after binding to a port
+              getRealGroupID >>= setEffectiveGroupID
+              getRealUserID >>= setEffectiveUserID
+              -- redirect I/O
+              maybe (return ()) (redirectHandle stdout) out
+              maybe (return ()) (redirectHandle stderr) err
     redirectHandle hdl path = do
       exists <- fileExist path
       when (not exists) $ writeFile path ""
