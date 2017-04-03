@@ -81,9 +81,9 @@ isRoot = flip pathMatches (splitPathComps "/")
 pathMatches :: Path -- ^ path
             -> [Text] -- ^ pathComps
             -> Bool
-pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPathComps pin
-pathMatches (LiteralPath lpin) pin = lpin == pin
-pathMatches (CapturedPath cpin) pin = pin == sanitizeCapts cpin pin
+pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPathComps $ delete "/" pin
+pathMatches (LiteralPath lpin) pin = lpin == delete "/" pin
+pathMatches (CapturedPath cpin) pin = pin == sanitizeCapts cpin (delete "/" pin)
   where sanitizeCapts = zipWith (\c p -> bool c p $ T.head c == ':')
 
 -- | Returns path captures by comparing @path@ to @pathComps@.

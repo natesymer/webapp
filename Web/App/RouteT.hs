@@ -14,6 +14,8 @@ and using middleware.
 
 module Web.App.RouteT
 (
+  -- * Exported Types
+  Middleware,
   -- * RouteT monad transformer
   RouteT,
   evalRouteT,
@@ -22,7 +24,17 @@ module Web.App.RouteT
   Predicate,
   Route,
   RouteInterrupt(..),
-  findRoute,
+  -- * Routes
+  routeMatches,
+  route,
+  get,
+  post,
+  put,
+  patch,
+  delete,
+  options,
+  anyRequest,
+  matchAll,
   -- * Monadic actions
   halt,
   halt',
@@ -39,10 +51,12 @@ module Web.App.RouteT
   params,
   param,
   maybeParam,
-  bodyReader,
   body,
   urlencodedBody,
-  path
+  path,
+  getState,
+  putState,
+  toApplication
 )
 where
   
@@ -61,11 +75,9 @@ import Web.App.Path
 import Web.App.Stream
 import Web.App.Parameter
   
-import Control.Monad (ap)
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
-import Control.Monad.State.Class
-import Control.Monad.Writer.Class
 import Control.Concurrent.STM
 import Control.Applicative
 
@@ -73,9 +85,12 @@ import Network.Wai
 import Network.HTTP.Types.Status
 import Network.HTTP.Types.Header
 import Network.HTTP.Types.URI
+import Network.HTTP.Types.Method
 
+import Data.Bool
 import Data.Maybe
 import Data.Monoid
+
 import Data.Aeson
 import Data.CaseInsensitive (mk)
 
@@ -152,39 +167,18 @@ instance (WebAppState s) => MonadTrans (RouteT s) where
 instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
   liftIO = lift . liftIO
   
--- |MonadState instance for accessing the mutable state.
-instance (WebAppState s, MonadIO m) => MonadState s (RouteT s m) where
-  get = RouteT $ \st _ _ _ ->
-    Right . (,Nothing,[],Nothing) <$> (liftIO $ readTVarIO st)
-  put v = RouteT $ \st _ _ _ ->
-    Right . (,Nothing,[],Nothing) <$> (liftIO $ atomically $ writeTVar st v)
+  
+getState :: (WebAppState s, MonadIO m) => RouteT s m s
+getState = RouteT $ \st _ _ _ -> Right . (,Nothing,[],Nothing) <$> (liftIO $ readTVarIO st)
 
--- |MonadWriter instance for writing to the HTTP response body.
-instance (WebAppState s, Monad m) => MonadWriter Stream (RouteT s m) where
-  tell s = RouteT $ \_ _ _ _ -> return $ Right ((),Nothing,[],Just s)
-  listen act = RouteT $ \st pth bdy req -> do
-    v <- runRouteT act st pth bdy req
-    case v of
-      Left e -> return $ Left e
-      Right (a,_,_,mw) -> return $ Right ((a,fromMaybe mempty mw),Nothing,[],Nothing)
-  pass act = RouteT $ \st pth bdy req -> do
-    v <- runRouteT act st pth bdy req
-    case v of
-      Left e -> return $ Left e
-      Right ((a,f),_,_,mw) ->
-        return $ Right (a,Nothing,[],maybe mempty (Just . f) mw)
+putState :: (WebAppState s, MonadIO m) => s -> RouteT s m ()
+putState v = RouteT $ \st _ _ _ -> Right . (,Nothing,[],Nothing) <$> (liftIO $ atomically $ writeTVar st v)
 
 {- Route Evaluation -}
-
--- |Find the first route that can respond to @request@ in @routes@.
-findRoute :: (WebAppState s, Monad m)
-          => [Route s m] -- ^ routes
-          -> Request -- ^ request
-          -> Maybe ([Route s m],Route s m)
-findRoute [] _ = Nothing
-findRoute (x@(pd,pth,_):xs) req
-  | pd req && pathMatches pth (pathInfo req) = Just (xs,x)
-  | otherwise = findRoute xs req
+  
+-- |Determine if a 'Route' matches a 'Request'.
+routeMatches :: (WebAppState s, Monad m) => Request -> Route s m -> Bool
+routeMatches req (pd, pth, _) = pd req && pathMatches pth (pathInfo req)
 
 {- Monadic actions -}
 
@@ -196,8 +190,7 @@ halt :: (WebAppState s, Monad m)
      -> Stream -- ^ body with which to terminate
      -> RouteT s m a
 halt s h b = act >> let x = x in x -- second action will never be evaluated
-  where act = RouteT $ \_ _ _ _ ->
-                return $ Left $ InterruptHalt (Just s) h (Just b)
+  where act = RouteT $ \_ _ _ _ -> return $ Left $ InterruptHalt (Just s) h (Just b)
   
 -- |Halt route evaluation and provide the accumulated 'Status',
 -- 'ResponseHeaders', and 'Stream'.
@@ -275,13 +268,7 @@ param k = maybeParam k >>= maybe next return
 -- |Get a specific header. Will not interfere with route evaluation.
 maybeParam :: (WebAppState s, MonadIO m, Parameter a) => ByteString -> RouteT s m (Maybe a)
 maybeParam k = f . lookup k <$> params
-  where f (Just (Just v)) = maybeRead v
-        f _ = Nothing
-
--- |Get an action that reads a chunk from the request body.
--- Incompatible with 'body'.
-bodyReader :: (WebAppState s, MonadIO m) => RouteT s m (IO ByteString)
-bodyReader = RouteT $ \_ _ _ r -> return $ Right (requestBody r,Nothing,[],Nothing)
+  where f x = join x >>= maybeRead
 
 -- |Read the request body as a lazy 'ByteString'.
 -- Incompatible with 'bodyReader'.
@@ -291,21 +278,81 @@ body = do
   act <- fmap requestBody request
   liftIO $ persisted tvar act
   where
-    bodyTVar = RouteT $ \_ _ b _ -> return $ Right (b,Nothing,[],Nothing)
+    bodyTVar = RouteT $ \_ _ b _ -> return $ Right (b, Nothing, [], Nothing)
     persisted tvar act = do
       remaining <- lazyRead act
       atomically $ do
-        alreadyRead <- readTVar tvar
-        writeTVar tvar $ alreadyRead <> remaining
-        readTVar tvar
-    lazyRead f = unsafeInterleaveIO $ do
-      c <- f
-      if B.null c
-        then return BL.Empty
-        else BL.Chunk c <$> (lazyRead f)
+        new <- (<> remaining) <$> readTVar tvar
+        writeTVar tvar new
+        return new
+    lazyRead rd = unsafeInterleaveIO $ rd >>= f
+      where f c = bool (BL.Chunk c <$> lazyRead rd) (return BL.Empty) $ B.null c
 
 urlencodedBody :: (WebAppState s, MonadIO m) => RouteT s m Query
-urlencodedBody = parseQuery . BL.toStrict <$> body
+urlencodedBody = fmap (parseQuery . BL.toStrict) body
 
 path :: (WebAppState s, Monad m) => RouteT s m Path
-path = RouteT $ \_ pth _ _ -> return $ Right (pth,Nothing,[],Nothing)
+path = RouteT $ \_ pth _ _ -> return $ Right (pth, Nothing, [], Nothing)
+
+-- |Define a route
+route :: (WebAppState s, Monad m) => Predicate -> Path -> RouteT s m () -> Route s m
+route = (,,)
+
+-- |Match a `GET` request.
+get :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
+get p act = route (matchMethod methodGet) p act
+
+-- |Match a `POST` request.
+post :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
+post p act = route (matchMethod methodPost) p act
+
+-- |Match a `PUT` request.
+put :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
+put p act = route (matchMethod methodPut) p act
+
+-- |Match a `PATCH` request.
+patch :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
+patch p act = route (matchMethod methodPatch) p act
+
+-- |Match a `DELETE` request.
+delete :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
+delete p act = route (matchMethod methodDelete) p act
+
+-- |Match a `OPTIONS` request.
+options :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
+options p act = route (matchMethod methodOptions) p act
+
+-- |Match any request given a path.
+anyRequest :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
+anyRequest = route (const True)
+
+-- |Match all requests and paths.
+matchAll :: (WebAppState s, Monad m) => RouteT s m () -> Route s m
+matchAll = route (const True) (regex ".*")
+
+{-# INLINE matchMethod #-}
+matchMethod :: Method -> Predicate
+matchMethod meth = \r -> (requestMethod r) == meth
+
+toApplication :: (WebAppState s, MonadIO m, MonadIO n)
+              => (m RouteResult -> IO RouteResult) -- ^ function to run WebApp-transformed monad m to IO
+              -> [Route s m] -- ^ routes
+              -> [Middleware] -- ^ middlewares
+              -> n (Application, -- ^ WAI application
+                    IO ()) -- ^ teardown action; call when shutting down app server
+toApplication runToIO routes mws = do
+  st <- liftIO $ newTVarIO =<< initState
+  let app = foldl (flip ($)) (mkApp st routes) mws
+  return (app, readTVarIO st >>= destroyState)
+  where
+    plainText = [("Content-Type", "text/plain; charset=utf-8")]
+    mkApp tvar routes req callback = f $ filter (routeMatches req) routes
+      where
+        f [] = callback $ responseLBS status404 plainText "Not found."
+        f ((_, pth, act):rs) = do
+          res <- runRoute pth act
+          maybe (f rs) id res
+        runRoute pth act = do
+          res <- runToIO $ evalRouteT act tvar pth req
+          return $ (\(s, h, b) -> callback' s h b) <$> res
+          where callback' s h = callback . responseStream s h . runStream

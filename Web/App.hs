@@ -17,8 +17,7 @@ module Web.App
   module Web.App.Path,
   module Web.App.RouteT,
   module Web.App.State,
-  module Web.App.Stream,
-  module Web.App.WebApp
+  module Web.App.Stream
 )
 where
 
@@ -29,4 +28,3 @@ import Web.App.Path
 import Web.App.RouteT
 import Web.App.State
 import Web.App.Stream
-import Web.App.WebApp

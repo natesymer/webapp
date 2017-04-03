@@ -14,8 +14,11 @@ module Main where
 
 import Web.App
 
+routes :: (WebAppState s, MonadIO m) => [Route s m]
+routes = [] -- routes go here
+
 main :: IO ()
-main = webappMain' app "My Application!"
+main = webappMain' routes []
 @
 
 -}
@@ -27,12 +30,12 @@ module Web.App.Main
   webappMain,
   webappMain',
   webappMainIO,
-  webappMainIO'
+  webappMainIO',
+  webappMainSimple,
 )
 where
 
-import Web.App.WebApp
-import Web.App.RouteT (RouteResult)
+import Web.App.RouteT
 import Web.App.State
 import Web.App.HTTP
 
@@ -61,15 +64,20 @@ data Options = Options {
   _optionsErrorPath :: Maybe FilePath
 }
 
+webappMainSimple :: (WebAppState s) => [Route s IO] -> IO ()
+webappMainSimple = flip webappMainIO' []
+
 -- |Like 'webappMainIO' without the CLI extension arguments.
 webappMainIO' :: (WebAppState s)
-              => WebApp s IO -- ^ app to start
+              => [Route s IO] -- ^ routes
+              -> [Middleware] -- ^ middlewares
               -> IO ()
-webappMainIO' a = webappMainIO a Nothing (const $ return ())
+webappMainIO' a m = webappMainIO a m Nothing (const $ return ())
   
 -- |Run a webapp based on IO.
 webappMainIO :: (WebAppState s)
-             => WebApp s IO -- ^ app to start
+             => [Route s IO] -- ^ routes
+             -> [Middleware] -- ^ middlewares
              -> Maybe (Parser a) -- ^ extra CLI parser (available under @util@ subcommand)
              -> (a -> IO ()) -- ^ action to apply to parse result of 'utilParser'
              -> IO ()
@@ -78,19 +86,21 @@ webappMainIO = webappMain id
 -- |Like 'webappMain' without the CLI extension arguments.
 webappMain' :: (WebAppState s, MonadIO m)
             => (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
-            -> WebApp s m -- ^ app to start
+            -> [Route s m] -- ^ routes
+            -> [Middleware] -- ^ middlewares
             -> IO ()
-webappMain' f a = webappMain f a Nothing (const $ return ())
+webappMain' f a m = webappMain f a m Nothing (const $ return ())
 
 -- | Read commandline arguments and start webapp accordingly. When passing an
 -- additional CLI parser, it is made available under the @util@ subcommand.
 webappMain :: (WebAppState s, MonadIO m)
            => (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
-           -> WebApp s m -- ^ app to start
+           -> [Route s m] -- ^ routes
+           -> [Middleware] -- ^ middlewares
            -> Maybe (Parser a) -- ^ extra CLI parser, parsed after the built-in parser
            -> (a -> IO ()) -- ^ action to apply the result of 'extraParser'
            -> IO ()
-webappMain runToIO app extraParser extraf = parseArgs extraParser >>= either extraf f
+webappMain runToIO app mws extraParser extraf = parseArgs extraParser >>= either extraf f
   where
     f (Options Nothing p c k o e) = start p c k o e
     f (Options (Just pidFile) p c k o e) = do
@@ -106,19 +116,19 @@ webappMain runToIO app extraParser extraf = parseArgs extraParser >>= either ext
         exitImmediately ExitSuccess
       exitImmediately ExitSuccess
     start port cert key out err = do
-      (wai, teardown) <- toApplication runToIO app
-      runServer ((,) <$> cert <*> key) port (pre out err) teardown wai
-      where pre out err = do
+      (wai, teardown) <- toApplication runToIO app mws
+      runServer ((,) <$> cert <*> key) port pre teardown wai
+      where pre = do
               -- drop privileges after binding to a port
               getRealGroupID >>= setEffectiveGroupID
               getRealUserID >>= setEffectiveUserID
               -- redirect I/O
               maybe (return ()) (redirectHandle stdout) out
               maybe (return ()) (redirectHandle stderr) err
-    redirectHandle hdl path = do
-      exists <- fileExist path
-      when (not exists) $ writeFile path ""
-      h <- openFile path WriteMode
+    redirectHandle hdl pth = do
+      exists <- fileExist pth
+      when (not exists) $ writeFile pth ""
+      h <- openFile pth WriteMode
       hDuplicateTo h hdl
       hClose h
       hSetBuffering hdl NoBuffering
