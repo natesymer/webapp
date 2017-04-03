@@ -41,7 +41,6 @@ Library
                      warp,
                      warp-tls,
                      network,
-                     streaming-commons,
                      regex-posix,
                      http-types,
                      unix,

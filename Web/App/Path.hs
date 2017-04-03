@@ -20,13 +20,13 @@ module Web.App.Path
   captured,
   regex,
   -- * Path Operations
-	isRoot,
+  isRoot,
   pathMatches,
-	pathCaptures,
+  pathCaptures,
   -- * Path Components Operations
   splitPathComps,
-	joinPathComps,
-	isValidPathComps
+  joinPathComps,
+  isValidPathComps
 )
 where
 
@@ -54,8 +54,8 @@ data Path = LiteralPath [Text] -- ^ as-is
 instance IsString Path where
   fromString = join getCtor . splitPathComps . T.pack
     where
-			hasCapture = isJust . find (T.isPrefixOf ":")
-			getCtor = bool LiteralPath CapturedPath . hasCapture
+      hasCapture = isJust . find (T.isPrefixOf ":")
+      getCtor = bool LiteralPath CapturedPath . hasCapture
 
 {- PATH CONSTRUCTORS -}
 
@@ -79,8 +79,8 @@ isRoot = flip pathMatches (splitPathComps "/")
 
 -- | Returns @True@ if the given 'Path' matches the given path components.
 pathMatches :: Path -- ^ path
-						-> [Text] -- ^ pathComps
-						-> Bool
+            -> [Text] -- ^ pathComps
+            -> Bool
 pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPathComps pin
 pathMatches (LiteralPath lpin) pin = lpin == pin
 pathMatches (CapturedPath cpin) pin = pin == sanitizeCapts cpin pin
@@ -93,11 +93,11 @@ pathCaptures :: Path -- ^ path
 pathCaptures (LiteralPath _) _ = []
 pathCaptures (RegexPath r) pin = maybe [] (\(_, x, _, xs) -> f (x:xs)) matched
   where
-		f = indexedList . map T.decodeUtf8
-		indexedList = zipWith (\a b -> (T.pack $ show a, b)) ([0..] :: [Integer])
-		
-		matched :: Maybe (B.ByteString, B.ByteString, B.ByteString, [B.ByteString])
-		matched = matchM r $ T.encodeUtf8 $ joinPathComps pin
+    f = indexedList . map T.decodeUtf8
+    indexedList = zipWith (\a b -> (T.pack $ show a, b)) ([0..] :: [Integer])
+    
+    matched :: Maybe (B.ByteString, B.ByteString, B.ByteString, [B.ByteString])
+    matched = matchM r $ T.encodeUtf8 $ joinPathComps pin
 pathCaptures (CapturedPath cap) pin = f [] cap pin
   where
     f acc [] [] = acc
@@ -121,4 +121,4 @@ joinPathComps = mconcat . intersperse "/" . (:) ""
 -- | Determine if some path components contain only valid characters.
 isValidPathComps :: [Text] -> Bool
 isValidPathComps = all $ \v -> not (T.null v) && T.all isPathChar v
-	where isPathChar c = isAlphaNum c || (c `elem` ("-.~!$&'()*+,;=:@%" :: String))
+  where isPathChar c = isAlphaNum c || (c `elem` ("-.~!$&'()*+,;=:@%" :: String))
