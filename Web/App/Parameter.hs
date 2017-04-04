@@ -41,6 +41,7 @@ instance Parameter Bool where
       f "n" = Just False
       f "on" = Just True -- HTML checkboxes
       f "off" = Just False -- HTML checkboxes
+      f "null" = Just False -- treat nulls like False
       f _ = Nothing
 
 instance Parameter T.Text where
@@ -70,7 +71,7 @@ instance Parameter Double where
   maybeRead (B.uncons -> Just ('.',v)) = (*) e <$> v''
     where v'  = B.takeWhile isDigit v
           v'' = fromIntegral . fst <$> B.readInt v'
-          e   = 10**(negate $ fromIntegral $ B.length v')
+          e   = 10 ** (negate $ fromIntegral $ B.length v')
   maybeRead x = (+) (fromMaybe 0 $ maybeRead xs) <$> x''
     where (x',xs) = B.span isDigit x
           x''     = fromInteger . fst <$> B.readInteger x'

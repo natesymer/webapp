@@ -55,7 +55,7 @@ bindTCP p = tryAddrs . sortOn sortf =<< getAddrInfo (Just hints) Nothing (Just $
                   addrFlags = [AI_PASSIVE, AI_NUMERICSERV, AI_NUMERICHOST],
                   addrSocketType = Stream
                 } -- TODO: add port to these hints somehow
-        sortf = (==) AF_INET6 . addrFamily
+        sortf = (==) AF_INET6 . addrFamily -- sortOn odd [True, False, True] == [False, True, True]
         tryAddrs = fmap fromJust . findMLazy isListening . map theBody -- uses laziness
         theBody addr = bracketOnError aquire close action
           where aquire = socket (addrFamily addr) (addrSocketType addr) (addrProtocol addr)
