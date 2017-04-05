@@ -41,7 +41,8 @@ Library
                      unix,
                      blaze-builder,
                      optparse-applicative,
-                     case-insensitive
+                     case-insensitive,
+                     vault
 
 source-repository head
   type:     git

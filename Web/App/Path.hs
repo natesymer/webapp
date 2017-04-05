@@ -42,8 +42,6 @@ import Data.Maybe (isJust)
 import Data.Bool (bool)
 import Control.Monad (join)
 
-import Debug.Trace
-
 {- TYPES -}
 
 -- TODO: CapturedPath needs to store indeces of captures as an optimization
@@ -83,9 +81,9 @@ isRoot = flip pathMatches (splitPathComps "/")
 pathMatches :: Path -- ^ path
             -> [Text] -- ^ pathComps
             -> Bool
-pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPathComps $ delete "/" $ traceShowId pin
-pathMatches (LiteralPath lpin) pin = lpin == (delete "/" $ traceShowId pin)
-pathMatches (CapturedPath cpin) pin = pin == sanitizeCapts cpin (delete "/" $ traceShowId  pin)
+pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPathComps $ delete "/" pin
+pathMatches (LiteralPath lpin) pin = lpin == delete "/" pin
+pathMatches (CapturedPath cpin) pin = pin == sanitizeCapts cpin (delete "/" pin)
   where sanitizeCapts = zipWith (\c p -> bool c p $ (fst <$> T.uncons c) == Just ':')
 
 -- | Returns path captures by comparing @path@ to @pathComps@.

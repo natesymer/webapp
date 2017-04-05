@@ -39,6 +39,8 @@ import Web.App.RouteT
 import Web.App.State
 import Web.App.HTTP
 
+import Network.Wai (Middleware)
+
 import Data.Maybe
 import Data.Monoid
 import Control.Monad
@@ -115,10 +117,9 @@ webappMain runToIO app mws extraParser extraf = parseArgs extraParser >>= either
           start p c k Nothing Nothing
         exitImmediately ExitSuccess
       exitImmediately ExitSuccess
-    start port cert key out err = do
-      (wai, teardown) <- toApplication runToIO app mws
-      runServer ((,) <$> cert <*> key) port pre teardown wai
-      where pre = do
+    start port cert key out err = runServer ((,) <$> cert <*> key) port pre teardown wai
+      where (wai, teardown) = toApplication runToIO app mws
+            pre = do
               -- drop privileges after binding to a port
               getRealGroupID >>= setEffectiveGroupID
               getRealUserID >>= setEffectiveUserID

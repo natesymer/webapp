@@ -74,7 +74,7 @@ app = [
 data Util = Password String
   
 parseUtil :: Parser Util
-parseUtil = subparser $ (mkcmd "password" "Hash a password" parsePassword)
+parseUtil = subparser $ mkcmd "password" "Hash a password" parsePassword
   where
     parsePassword = Password <$> (strArgument $ metavar "PASSWORD" <> help "password to hash")
     mkcmd cmd desc p = command cmd $ info (helper <*> p) $ progDesc desc
