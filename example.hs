@@ -2,6 +2,7 @@
 module Main (main) where
     
 import Web.App
+import Data.Monoid
 import Options.Applicative
 import Network.Wai
 import Network.HTTP.Types
@@ -21,11 +22,10 @@ instance WebAppState Integer where
     print st
 
 main :: IO ()
-main = webappMainIO app (Just parseUtil) handleUtil
+main = webappMainIO app [] (Just parseUtil) handleUtil
 
-app :: WebApp Integer IO
-app = mconcat [
-  middleware $ gzip 0,
+app :: [Route Integer IO]
+app = [
   -- Counter routes
   get "/" root,
   get "/add" add,
@@ -38,37 +38,37 @@ app = mconcat [
   get "/teststring" streamString,
   get "/captured/:id" withC,
   get (regex "/assets/(.*)") withR,
-  matchAll $ writeBodyBytes "not found!\n"]
+  matchAll $ writeBody ("not found!\n" :: String)]
   where
     root = do
       addHeader "Content-Type" "text/plain"
-      S.get >>= writeBody . show
+      getState >>= writeBody . show
     add = do
-      S.state (((),) . (+) 1)
+      getState >>= putState . (+) 1
       redirect "/"
     addSpecific = do
       v <- param "v"
-      S.state (((),) . (+) v)
+      getState >>= putState . (+) v
       redirect "/"
     subtr = do
-      S.state (((),) . (-) 1)
+      getState >>= putState . (-) 1
       redirect "/"
     reset = do
-      S.put 0
+      putState 0
       redirect "/"
     fallthrough = do
       liftIO $ putStrLn "falling through..."
       next
     message = do
-      writeBodyBytes "writeBodyBytes \"This is a subpath,\\n\"\n"
-      writeBodyBytes "writeBodyBytes \"hear it roar!\""
+      writeBody ("writeBody \"This is a subpath,\\n\"\n" :: String)
+      writeBody ("writeBody \"hear it roar!\"" :: String)
     streamString = do
       writeBody ("this is a string" :: String)
     withC = do
       param "id" >>= \(v :: Double) -> writeBody $ show v
     withR = do
-      writeBodyBytes "asset path: "
-      param "1" >>= writeBodyBytes
+      writeBody ("asset path: " :: String)
+      param "1" >>= \v -> writeBody (v :: String)
       writeBody '\n'
 
 data Util = Password String

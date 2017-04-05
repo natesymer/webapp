@@ -42,6 +42,8 @@ import Data.Maybe (isJust)
 import Data.Bool (bool)
 import Control.Monad (join)
 
+import Debug.Trace
+
 {- TYPES -}
 
 -- TODO: CapturedPath needs to store indeces of captures as an optimization
@@ -81,10 +83,10 @@ isRoot = flip pathMatches (splitPathComps "/")
 pathMatches :: Path -- ^ path
             -> [Text] -- ^ pathComps
             -> Bool
-pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPathComps $ delete "/" pin
-pathMatches (LiteralPath lpin) pin = lpin == delete "/" pin
-pathMatches (CapturedPath cpin) pin = pin == sanitizeCapts cpin (delete "/" pin)
-  where sanitizeCapts = zipWith (\c p -> bool c p $ T.head c == ':')
+pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPathComps $ delete "/" $ traceShowId pin
+pathMatches (LiteralPath lpin) pin = lpin == (delete "/" $ traceShowId pin)
+pathMatches (CapturedPath cpin) pin = pin == sanitizeCapts cpin (delete "/" $ traceShowId  pin)
+  where sanitizeCapts = zipWith (\c p -> bool c p $ (fst <$> T.uncons c) == Just ':')
 
 -- | Returns path captures by comparing @path@ to @pathComps@.
 pathCaptures :: Path -- ^ path
@@ -103,16 +105,15 @@ pathCaptures (CapturedPath cap) pin = f [] cap pin
     f acc [] [] = acc
     f _ [] _ = []
     f _ _ [] = []
-    f acc (c:cs) (p:ps)
-      | T.head c == ':' = f ((T.tail c, p):acc) cs ps -- FIXME: T.head is unsafe
-      | p == c = f acc cs ps
-      | otherwise = []
+    f acc (c:cs) (p:ps) = g $ T.uncons c
+      where g (Just (':', xs)) = f ((xs, p):acc) cs ps
+            g _ = bool [] (f acc cs ps) $ p == c
 
 {- PATH COMPONENTS OPERATIONS -}
 
 -- | Split a 'Text' into a path components.
 splitPathComps :: Text -> [Text]
-splitPathComps = T.split (== '/') . T.takeWhile (/= '?')
+splitPathComps = filter (not . T.null) . T.split (== '/') . T.takeWhile (/= '?')
 
 -- | Join path components into a 'Text'ual path.
 joinPathComps :: [Text] -> Text
