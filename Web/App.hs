@@ -13,7 +13,6 @@ module Web.App
 (
   module Web.App.HTTP,
   module Web.App.Main,
-  module Web.App.Middleware,
   module Web.App.Path,
   module Web.App.RouteT,
   module Web.App.State,
@@ -23,7 +22,6 @@ where
 
 import Web.App.HTTP
 import Web.App.Main
-import Web.App.Middleware
 import Web.App.Path
 import Web.App.RouteT
 import Web.App.State

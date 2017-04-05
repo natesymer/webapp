@@ -21,8 +21,6 @@ Library
   Exposed-modules:   Web.App
                      Web.App.HTTP
                      Web.App.State
-                     Web.App.Middleware
-                     Web.App.Middleware.Gzip
                      Web.App.Parameter
                      Web.App.Path
                      Web.App.RouteT
@@ -43,9 +41,7 @@ Library
                      http-types,
                      unix,
                      blaze-builder,
-                     zlib,
                      optparse-applicative,
-                     aeson,
                      case-insensitive
 
 source-repository head
