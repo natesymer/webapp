@@ -94,9 +94,9 @@ data EvalState = Current -- continue executing as normal
   deriving (Eq)
 
 data HTTPContext = HTTPContext {
-  httpContextStatus :: Maybe Status,
-  httpContextHeaders :: ResponseHeaders,
-  httpContextBody :: Maybe Stream
+  _httpContextStatus :: Maybe Status,
+  _httpContextHeaders :: ResponseHeaders,
+  _httpContextBody :: Maybe Stream
 }
 
 instance Monoid HTTPContext where
