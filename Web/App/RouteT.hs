@@ -103,18 +103,6 @@ instance Monoid HTTPContext where
   mempty = HTTPContext Nothing [] Nothing
   mappend (HTTPContext s1 h1 b1) (HTTPContext s2 h2 b2) = HTTPContext (s2 <|> s1) (h2 <|> h1) (b1 <> b2)
 
-data Context = Context {
-  contextState :: EvalState,
-  contextHTTPContext :: HTTPContext
-}
-
-contextResult :: Context -> RouteResult
-contextResult (Context Next _) = Nothing
-contextResult (Context _ (HTTPContext s h b)) = Just (fromMaybe status200 s, h, maybe mempty flush b)
-
-freshContext :: Context
-freshContext = Context Current mempty
-
 -- |Monad transformer in which routes are evaluated. It's essentially
 -- an ExceptT crossed with an RWST with the path, body, and push func
 -- as the "Reader" state, the response as the "Writer" state, and no
@@ -123,7 +111,7 @@ newtype RouteT s m a = RouteT {
   runRouteT :: TVar s -- ^ tvar containing state
             -> Path -- ^ path of route
             -> Request -- ^ request being served
-            -> m (a, Context)
+            -> m (a, (EvalState, HTTPContext))
 }
 
 -- |Evaluate a 'RouteT' action into a 'RouteResult'.
@@ -133,27 +121,29 @@ evalRouteT :: (WebAppState s, Monad m)
            -> Path -- ^ path of route
            -> Request -- ^ request being served
            -> m RouteResult
-evalRouteT act st pth req = contextResult . snd <$> runRouteT act st pth (addMutVault req)
+evalRouteT act st pth req = uncurry result . snd <$> runRouteT act st pth (addMutVault req)
+  where result Next _ = Nothing
+        result _    (HTTPContext s h b) = Just (fromMaybe status200 s, h, maybe mempty flush b)
         
 instance (WebAppState s, Functor m) => Functor (RouteT s m) where
   fmap f m = RouteT $ \st pth req -> apply <$> runRouteT m st pth req
     where apply (a, c) = (f a, c)
   
 instance (WebAppState s, Monad m) => Applicative (RouteT s m) where
-  pure a = RouteT $ \_ _ _ -> return (a, freshContext)
+  pure a = RouteT $ \_ _ _ -> return (a, (Current, mempty))
   (<*>) = ap
 
 instance (WebAppState s, Monad m) => Monad (RouteT s m) where
   fail msg = RouteT $ \_ _ _ -> fail msg
   m >>= k = RouteT actionf
     where actionf st pth req = runRouteT m st pth req >>= handleFirst
-            where handleFirst (x, Context Current c1) = runRouteT (k x) st pth req >>= handleSecond
-                    where handleSecond (x', Context sts c2) = return (x', Context sts c3)
+            where handleFirst (x, (Current, c1)) = runRouteT (k x) st pth req >>= handleSecond
+                    where handleSecond (x', (sts, c2)) = return (x', (sts, c3))
                             where c3 = bool (c1 <> c2) c2 $ sts == Halt
                   handleFirst (_, c) = return (undefined, c)
 
 instance (WebAppState s) => MonadTrans (RouteT s) where
-  lift m = RouteT $ \_ _ _ -> m >>= return . (,freshContext)
+  lift m = RouteT $ \_ _ _ -> m >>= return . (,(Current, mempty))
 
 instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
   liftIO = lift . liftIO
@@ -163,19 +153,19 @@ instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
 -- INTERNAL
 
 context :: (WebAppState s, Monad m) => EvalState -> HTTPContext -> RouteT s m ()
-context st hc = RouteT $ \_ _ _ -> return ((), Context st hc)
+context st hc = RouteT $ \_ _ _ -> return ((), (st, hc))
 
 stateTVar :: (WebAppState s, Monad m) => RouteT s m (TVar s)
-stateTVar = RouteT $ \st _ _ -> return (st, freshContext)
+stateTVar = RouteT $ \st _ _ -> return (st, (Current, mempty))
 
 path :: (WebAppState s, Monad m) => RouteT s m Path
-path = RouteT $ \_ pth _ -> return (pth, freshContext)
+path = RouteT $ \_ pth _ -> return (pth, (Current, mempty))
 
 -- EXTERNAL
 
 -- |Get the 'Request' being served.
 request :: (WebAppState s, Monad m) => RouteT s m Request
-request = RouteT $ \_ _ req -> return (req, freshContext)
+request = RouteT $ \_ _ req -> return (req, (Current, mempty))
 
 -- | Get the web app state.
 getState :: (WebAppState s, MonadIO m) => RouteT s m s
