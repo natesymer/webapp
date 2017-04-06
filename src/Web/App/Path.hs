@@ -115,7 +115,7 @@ splitPathComps = filter (not . T.null) . T.split (== '/') . T.takeWhile (/= '?')
 
 -- | Join path components into a 'Text'ual path.
 joinPathComps :: [Text] -> Text
-joinPathComps = mconcat . intersperse "/" . (:) ""
+joinPathComps = mconcat . (:) "/" . intersperse "/"
 
 -- | Determine if some path components contain only valid characters.
 isValidPathComps :: [Text] -> Bool
