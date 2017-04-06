@@ -26,3 +26,7 @@ v 0.2.0
 v 0.2.1
 
 	- `stream` function can now optionally flush. `stream'` will always flush. This may improve list streaming functionality.
+
+v 0.4.0
+
+	- Breaking change; refactor internals & simplify `Web.App.RouteT`

@@ -1,5 +1,5 @@
 {-|
-Module      : Web.App.Monad.WebAppT
+Module      : Web.App.RouteT
 Copyright   : (c) Nathaniel Symer, 2015
 License     : MIT
 Maintainer  : nate@symer.io
@@ -93,19 +93,14 @@ data EvalState = Normal -- ^ continue executing as normal
 data ResponseChange = SetStatus Status
                     | AddHeaders [Header]
                     | AddBytes Stream
-                    -- | Next
-                    -- | Halt Status [Header] Stream
-                    -- | Multiple [ResponseChange]
+
 -- | INTERNAL: apply ResponseChanges to an empty response and return the result
 flattenResponse :: [ResponseChange] -> Response
-flattenResponse = g . f (status200, [], mempty)
-  where f acc [] = acc
+flattenResponse = f (status200, [], mempty)
+  where f (s, hdrs, sm) [] = responseStream s hdrs $ runStream sm
         f (_, hdrs, sm) ((SetStatus s):rs) = f (s, hdrs, sm) rs
         f (s, hdrs, sm) ((AddHeaders hdrs'):rs) = f (s, hdrs ++ hdrs', sm) rs
         f (s, hdrs, sm) ((AddBytes bs):rs) = f (s, hdrs, sm <> bs) rs
-        -- f _             (Next:_) = f (status200, [], mempty) []
-        -- f _             ((Halt s h b):_) = f (s, h, b) []
-        g (s,hdrs,sm) = responseStream s hdrs $ runStream sm
 
 -- |Monad transformer in which routes are evaluated. Evaluation may be stopped
 -- via 'halt', 'next', or 'redirect'.
@@ -263,20 +258,30 @@ toApplication :: (WebAppState s, Monad m)
               -> (Application, IO ()) -- ^ (application, teardown action)
 toApplication runToIO routes mws = (app', readTVarIO st >>= destroyState)
   where
-    routeMatches req (Route pd pth _) = pd req && pathMatches pth (pathInfo req)
     st = unsafePerformIO (newTVarIO =<< initState)
     {-# NOINLINE st #-}
     plainText = [("Content-Type", "text/plain; charset=utf-8")]
     app' = foldl (flip ($)) app mws
-    app req callback = run $ filter (routeMatches req) routes
+    app req callback = go =<< findSuccessful routeMatches runRoute routes
       where
-        run [] = callback $ responseLBS status404 [] mempty
-        run ((Route _ pth act):rs) = go =<< (try $ runToIO $ fmap f $ runRouteT act st pth (addMutVault req))
-          where go (Left e) = callback $ responseLBS status500 plainText $ BL.pack $ show (e :: SomeException)
-                go (Right jawn) = maybe (run rs) callback jawn
-                f (_, (Next, _)) = Nothing
-                f (_, (_, cng)) = Just $ flattenResponse cng
+        runRoute (Route _ pth act) = runToIO $ toResponse <$> runRouteT act st pth (addMutVault req)
+        routeMatches (Route pd pth _) = pd req && pathMatches pth (pathInfo req)
+        toResponse (_, (Next, _)) = Nothing
+        toResponse (_, (_, cng)) = Just $ flattenResponse cng
+        go Nothing = callback $ responseLBS status404 [] mempty
+        go (Just (Left e)) = callback $ responseLBS status500 plainText $ BL.pack $ show (e :: SomeException)
+        go (Just (Right jawn)) = callback jawn
 
+-- | INTERNAL Find an a that passes a predicate and either errors out or returns something. Returns the error or the something.
+findSuccessful :: (Exception e) => (a -> Bool) -> (a -> IO (Maybe b)) -> [a] -> IO (Maybe (Either e b))
+findSuccessful _ _ [] = return Nothing
+findSuccessful p f (x:xs) = if p x then (try $ f x) >>= go else findSuccessful p f xs
+    where
+      go (Right Nothing) = findSuccessful p f xs
+      go (Right (Just v)) = return $ Just $ Right v
+      go (Left e) = return $ Just $ Left e
+    
+    
 {- Vault (internal) -}
 
 -- Used to implement framework functionality    
@@ -295,12 +300,13 @@ mutableVaultKey :: Key (IORef Vault)
 mutableVaultKey = unsafePerformIO V.newKey
 {-# NOINLINE mutableVaultKey #-}
 
--- | Adds a "mutable vault" (IORef-wrapped vault) to a Request
+-- | Adds a "mutable" 'Vault' (@'IORef' 'Vault'@) to a 'Request'.
 addMutVault :: Request -> Request
 addMutVault r = r { vault = V.insert mutableVaultKey ioRef (vault r) }
   where ioRef = unsafePerformIO $ newIORef V.empty
         {-# NOINLINE ioRef #-}
 
+-- | Exposes the "mutable" 'Vault' for modification/access. DRY.
 withMutVaultM :: (WebAppState s, MonadIO m) => (Vault -> RouteT s m (Maybe a, Vault)) -> RouteT s m (Maybe a)
 withMutVaultM xform = request >>= maybe (return Nothing) f . V.lookup mutableVaultKey . vault
   where f ior = (liftIO $ readIORef ior) >>= xform >>= uncurry (g ior)

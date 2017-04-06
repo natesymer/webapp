@@ -44,14 +44,14 @@ app = [
       addHeader "Content-Type" "text/plain"
       getState >>= writeBody . show
     add = do
-      getState >>= putState . (+) 1
+      getState >>= putState . (+ 1)
       redirect "/"
     addSpecific = do
       v <- param "v"
-      getState >>= putState . (+) v
+      getState >>= putState . (+ v)
       redirect "/"
     subtr = do
-      getState >>= putState . (-) 1
+      getState >>= putState . (\x -> x - 1)
       redirect "/"
     reset = do
       putState 0

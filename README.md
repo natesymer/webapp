@@ -1,13 +1,16 @@
-# webapp - WAI web framework
+# Web.App - WAI web framework
 
-Webapp is a web framework that is designed to provide everything needed to define & deploy a web app. For how to use, see Haddock documentation. For an example, see `example.hs`.
+[![Build Status](https://travis-ci.org/natesymer/webapp.svg?branch=master)](https://travis-ci.org/natesymer/webapp)
 
-Webapp provides a function called `webappMain` (as well as a series of other similarly named functions) that start the built-in webserver. Your web application's `main` function should include a call to one of them at the end.
+Web.App is a general, minimalist Haskell web framework. See Haddock documentation and `example.hs`.
 
-# Using a webapp web app
+## Usage notes
 
-Once you've written your web app, deploying is up to you. Webapp will probably work with services like Heroku or complicated load balancers, but it designed to be a standalone server (i.e. no need to run behind something like nginx).
-
-Webapp works by first binding to an IPv4 TCP port, immediately after which resigning privileges†. Then it builds a `WAI` app from your `WebAppT` app, applies middleware, and runs `Warp`.
-
-† The effective GID & UID are set to match the real GID & UID.
+1. Web.App can either be ran standalone (i.e. look ma, no nginx!) or behind other server programs.
+  - To bind to privileged ports, your program must be executable as root. Privileges are resigned after the port is bound.
+  - Web.App uses Warp under the hood to serve a WAI app based on provided routes.
+  - SSL & HTTP2 are supported.
+2. Web.App provides a function called `webappMain` (as well as a series of other similarly named functions) that start your app.
+  - Your program's `main` function should finish with a call to one of them.
+3. Web.App also provides command line options for controlling the HTTP server.
+  - It also provides 
