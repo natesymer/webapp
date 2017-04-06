@@ -18,14 +18,13 @@ module Web.App.RouteT
   RouteT,
   Route(..),
   -- * Routes
-  routeMatches,
   get,
   post,
   put,
   patch,
   delete,
   options,
-  anyRequest,
+  method,
   matchAll,
   -- * Monadic actions
   halt,
@@ -97,7 +96,7 @@ data ResponseChange = SetStatus Status
                     -- | Next
                     -- | Halt Status [Header] Stream
                     -- | Multiple [ResponseChange]
-
+-- | INTERNAL: apply ResponseChanges to an empty response and return the result
 flattenResponse :: [ResponseChange] -> Response
 flattenResponse = g . f (status200, [], mempty)
   where f acc [] = acc
@@ -145,18 +144,18 @@ instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
 
 {- Monadic actions -}
 
--- INTERNAL
-
+-- |INTERNAL A helper to avoid having the RouteT constructor appear everywhere (DRY)
+{-# INLINE context #-}
 context :: (WebAppState s, Monad m) => EvalState -> [ResponseChange] -> RouteT s m ()
 context st hc = RouteT $ \_ _ _ -> return ((), (st, hc))
 
+-- |INTERNAL Get the state TVar.
 stateTVar :: (WebAppState s, Monad m) => RouteT s m (TVar s)
 stateTVar = RouteT $ \st _ _ -> return (st, (Normal, mempty))
 
+-- |INTERNAL Get the route's path. This can be different across different evaluations of the same route.
 path :: (WebAppState s, Monad m) => RouteT s m Path
 path = RouteT $ \_ pth _ -> return (pth, (Normal, mempty))
-
--- EXTERNAL
 
 -- |Get the 'Request' being served.
 request :: (WebAppState s, Monad m) => RouteT s m Request
@@ -182,8 +181,8 @@ status s = context Normal [SetStatus s]
 writeBody :: (WebAppState s, Monad m, ToStream w) => w -> RouteT s m ()
 writeBody w = context Normal [AddBytes (stream' w)]
 
--- |Halt route evaluation and provide a 'Status', 'ResponseHeaders', and 'Stream'.
-halt :: (WebAppState s, Monad m) => Status -> ResponseHeaders -> Stream -> RouteT s m a
+-- |Halt route evaluation and provide a 'Status', '[Header]', and 'Stream'.
+halt :: (WebAppState s, Monad m) => Status -> [Header] -> Stream -> RouteT s m a
 halt s h b = context Halt [SetStatus s, AddBytes b, AddHeaders h] >> undefined
 
 -- |Halt route evaluation and move onto the next matched route.
@@ -192,11 +191,12 @@ next = context Next [] >> undefined
 
 -- |Redirect to the given path using a @Location@ header and
 -- an HTTP status of 302. Route evaluation halts.
+{-# INLINE redirect #-}
 redirect :: (WebAppState s, MonadIO m) => ByteString -> RouteT s m ()
 redirect url = halt status302 [("Location",url)] mempty
   
 -- |Get the 'Request''s headers.
-headers :: (WebAppState s, Monad m) => RouteT s m RequestHeaders
+headers :: (WebAppState s, Monad m) => RouteT s m [Header]
 headers = requestHeaders <$> request
 
 -- |Get a specific header.
@@ -235,24 +235,25 @@ body = maybe (request >>= liftIO . lazyRead . requestBody >>= insertMutVault cac
 matchAll :: (WebAppState s, Monad m) => RouteT s m () -> Route s m
 matchAll = Route (const True) (regex ".*")
 
-get,post,put,patch,delete,options,anyRequest :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
-get        = Route $ matchMethod methodGet
-post       = Route $ matchMethod methodPost
-put        = Route $ matchMethod methodPut
-patch      = Route $ matchMethod methodPatch
-delete     = Route $ matchMethod methodDelete
-options    = Route $ matchMethod methodOptions
-anyRequest = Route $ const True
+{-# INLINE get #-}
+{-# INLINE post #-}
+{-# INLINE put #-}
+{-# INLINE patch #-}
+{-# INLINE delete #-}
+{-# INLINE options #-}
+get,post,put,patch,delete,options :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
+get        = method methodGet
+post       = method methodPost
+put        = method methodPut
+patch      = method methodPatch
+delete     = method methodDelete
+options    = method methodOptions
 
-{-# INLINE matchMethod #-}
-matchMethod :: Method -> (Request -> Bool)
-matchMethod meth r = meth == requestMethod r
+-- |Match a route based on the request's HTTP method.
+method :: (WebAppState s, Monad m) => Method -> Path -> RouteT s m () -> Route s m
+method m = Route $ (==) m . requestMethod
 
 {- Route Evaluation -}
-
--- |Determine if a 'Route' matches a 'Request'.
-routeMatches :: (WebAppState s, Monad m) => Request -> Route s m -> Bool
-routeMatches req (Route pd pth _) = pd req && pathMatches pth (pathInfo req)
 
 -- |Makes an 'Application' from routes and middleware.
 toApplication :: (WebAppState s, Monad m)
@@ -262,6 +263,7 @@ toApplication :: (WebAppState s, Monad m)
               -> (Application, IO ()) -- ^ (application, teardown action)
 toApplication runToIO routes mws = (app', readTVarIO st >>= destroyState)
   where
+    routeMatches req (Route pd pth _) = pd req && pathMatches pth (pathInfo req)
     st = unsafePerformIO (newTVarIO =<< initState)
     {-# NOINLINE st #-}
     plainText = [("Content-Type", "text/plain; charset=utf-8")]
