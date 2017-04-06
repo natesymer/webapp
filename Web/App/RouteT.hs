@@ -9,19 +9,16 @@ Portability : POSIX
 Monad transformer used for defining web app routes.
 -}
 
-{-# LANGUAGE OverloadedStrings, TupleSections, ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings, TupleSections #-}
 
 module Web.App.RouteT
 (
   toApplication,
   -- * Types
   RouteT,
-  evalRouteT,
-  RouteResult,
-  Route,
+  Route(..),
   -- * Routes
   routeMatches,
-  route,
   get,
   post,
   put,
@@ -59,7 +56,6 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Class
 import Control.Concurrent.STM
-import Control.Applicative
 
 import Network.Wai
 import Network.HTTP.Types.Status
@@ -68,7 +64,6 @@ import Network.HTTP.Types.URI
 import Network.HTTP.Types.Method
 
 import Data.Bool
-import Data.Maybe
 import Data.Monoid
 import Data.Functor
 
@@ -85,65 +80,65 @@ import qualified Data.ByteString.Char8 as B
 import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.Text.Encoding as T
 
-type Route s m = (Request -> Bool, Path, RouteT s m ()) 
-type RouteResult = Maybe (Status, ResponseHeaders, Stream) -- kind of like a Ruby Rack response.
-
-data EvalState = Current -- continue executing as normal
-               | Next -- skip to the next route
-               | Halt -- stop evaluation altogether
-  deriving (Eq)
-
-data HTTPContext = HTTPContext {
-  _httpContextStatus :: Maybe Status,
-  _httpContextHeaders :: ResponseHeaders,
-  _httpContextBody :: Maybe Stream
+data Route s m = Route {
+  _routePredicate :: Request -> Bool,
+  _routePath :: Path,
+  _routeAction :: RouteT s m ()
 }
 
-instance Monoid HTTPContext where
-  mempty = HTTPContext Nothing [] Nothing
-  mappend (HTTPContext s1 h1 b1) (HTTPContext s2 h2 b2) = HTTPContext (s2 <|> s1) (h2 <|> h1) (b1 <> b2)
+data EvalState = Normal -- ^ continue executing as normal
+               | Next -- ^ skip to the next route
+               | Halt -- ^ stop evaluation altogether
+  deriving (Eq)
 
--- |Monad transformer in which routes are evaluated. It's essentially
--- an ExceptT crossed with an RWST with the path, body, and push func
--- as the "Reader" state, the response as the "Writer" state, and no
--- "State" state.
+data ResponseChange = SetStatus Status
+                    | AddHeaders [Header]
+                    | AddBytes Stream
+                    -- | Next
+                    -- | Halt Status [Header] Stream
+                    -- | Multiple [ResponseChange]
+
+flattenResponse :: [ResponseChange] -> Response
+flattenResponse = g . f (status200, [], mempty)
+  where f acc [] = acc
+        f (_, hdrs, sm) ((SetStatus s):rs) = f (s, hdrs, sm) rs
+        f (s, hdrs, sm) ((AddHeaders hdrs'):rs) = f (s, hdrs ++ hdrs', sm) rs
+        f (s, hdrs, sm) ((AddBytes bs):rs) = f (s, hdrs, sm <> bs) rs
+        -- f _             (Next:_) = f (status200, [], mempty) []
+        -- f _             ((Halt s h b):_) = f (s, h, b) []
+        g (s,hdrs,sm) = responseStream s hdrs $ runStream sm
+
+-- |Monad transformer in which routes are evaluated. Evaluation may be stopped
+-- via 'halt', 'next', or 'redirect'.
 newtype RouteT s m a = RouteT {
   runRouteT :: TVar s -- ^ tvar containing state
             -> Path -- ^ path of route
             -> Request -- ^ request being served
-            -> m (a, (EvalState, HTTPContext))
+            -> m (a, (EvalState, [ResponseChange]))
 }
 
--- |Evaluate a 'RouteT' action into a 'RouteResult'.
-evalRouteT :: (WebAppState s, Monad m)
-           => RouteT s m () -- ^ route to evaluate
-           -> TVar s -- ^ tvar containing state
-           -> Path -- ^ path of route
-           -> Request -- ^ request being served
-           -> m RouteResult
-evalRouteT act st pth req = uncurry result . snd <$> runRouteT act st pth (addMutVault req)
-  where result Next _ = Nothing
-        result _    (HTTPContext s h b) = Just (fromMaybe status200 s, h, maybe mempty flush b)
-        
 instance (WebAppState s, Functor m) => Functor (RouteT s m) where
-  fmap f m = RouteT $ \st pth req -> apply <$> runRouteT m st pth req
+  fmap f m = RouteT $ \st pth req -> fmap apply $ runRouteT m st pth req
     where apply (a, c) = (f a, c)
   
 instance (WebAppState s, Monad m) => Applicative (RouteT s m) where
-  pure a = RouteT $ \_ _ _ -> return (a, (Current, mempty))
+  pure a = RouteT $ \_ _ _ -> return (a, (Normal, mempty))
   (<*>) = ap
 
 instance (WebAppState s, Monad m) => Monad (RouteT s m) where
   fail msg = RouteT $ \_ _ _ -> fail msg
   m >>= k = RouteT actionf
-    where actionf st pth req = runRouteT m st pth req >>= handleFirst
-            where handleFirst (x, (Current, c1)) = runRouteT (k x) st pth req >>= handleSecond
-                    where handleSecond (x', (sts, c2)) = return (x', (sts, c3))
-                            where c3 = bool (c1 <> c2) c2 $ sts == Halt
-                  handleFirst (_, c) = return (undefined, c)
+    where
+      actionf st pth req = runRouteT m st pth req >>= handleFirst
+        where
+          handleFirst (x, (Normal, cng1)) = runRouteT (k x) st pth req >>= handleSecond
+            where
+              handleSecond (x', (sts, cng2)) = return (x', (sts, cng3))
+                where cng3 = bool (cng1 <> cng2) cng2 $ sts == Halt
+          handleFirst (_, c) = return (undefined, c)
 
 instance (WebAppState s) => MonadTrans (RouteT s) where
-  lift m = RouteT $ \_ _ _ -> m >>= return . (,(Current, mempty))
+  lift m = RouteT $ \_ _ _ -> m >>= return . (,(Normal, mempty))
 
 instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
   liftIO = lift . liftIO
@@ -152,20 +147,20 @@ instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
 
 -- INTERNAL
 
-context :: (WebAppState s, Monad m) => EvalState -> HTTPContext -> RouteT s m ()
+context :: (WebAppState s, Monad m) => EvalState -> [ResponseChange] -> RouteT s m ()
 context st hc = RouteT $ \_ _ _ -> return ((), (st, hc))
 
 stateTVar :: (WebAppState s, Monad m) => RouteT s m (TVar s)
-stateTVar = RouteT $ \st _ _ -> return (st, (Current, mempty))
+stateTVar = RouteT $ \st _ _ -> return (st, (Normal, mempty))
 
 path :: (WebAppState s, Monad m) => RouteT s m Path
-path = RouteT $ \_ pth _ -> return (pth, (Current, mempty))
+path = RouteT $ \_ pth _ -> return (pth, (Normal, mempty))
 
 -- EXTERNAL
 
 -- |Get the 'Request' being served.
 request :: (WebAppState s, Monad m) => RouteT s m Request
-request = RouteT $ \_ _ req -> return (req, (Current, mempty))
+request = RouteT $ \_ _ req -> return (req, (Normal, mempty))
 
 -- | Get the web app state.
 getState :: (WebAppState s, MonadIO m) => RouteT s m s
@@ -177,23 +172,23 @@ putState v = liftIO . atomically . flip writeTVar v =<< stateTVar
 
 -- |Add an HTTP header.
 addHeader :: (WebAppState s, Monad m) => HeaderName -> ByteString -> RouteT s m ()
-addHeader k v = context Current $ HTTPContext Nothing [(k,v)] Nothing
+addHeader k v = context Normal [AddHeaders [(k, v)]]
 
 -- |Set the HTTP status.
 status :: (WebAppState s, Monad m) => Status -> RouteT s m ()
-status s = context Current $ HTTPContext (Just s) [] Nothing
+status s = context Normal [SetStatus s]
 
 -- |Write a 'Stream' to the response body.
 writeBody :: (WebAppState s, Monad m, ToStream w) => w -> RouteT s m ()
-writeBody w = context Current $ HTTPContext Nothing [] $ Just $ stream' w
+writeBody w = context Normal [AddBytes (stream' w)]
 
 -- |Halt route evaluation and provide a 'Status', 'ResponseHeaders', and 'Stream'.
 halt :: (WebAppState s, Monad m) => Status -> ResponseHeaders -> Stream -> RouteT s m a
-halt s h b = context Halt (HTTPContext (Just s) h (Just b)) >> undefined
+halt s h b = context Halt [SetStatus s, AddBytes b, AddHeaders h] >> undefined
 
 -- |Halt route evaluation and move onto the next matched route.
 next :: (WebAppState s, Monad m) => RouteT s m a
-next = context Next mempty >> undefined
+next = context Next [] >> undefined
 
 -- |Redirect to the given path using a @Location@ header and
 -- an HTTP status of 302. Route evaluation halts.
@@ -236,23 +231,18 @@ body = maybe (request >>= liftIO . lazyRead . requestBody >>= insertMutVault cac
 
 {- ROUTE DEFINITION -}
 
--- |Define a route
-{-# INLINE route #-}
-route :: (WebAppState s, Monad m) => (Request -> Bool) -> Path -> RouteT s m () -> Route s m
-route = (,,)
-
 -- |Match all requests and paths.
 matchAll :: (WebAppState s, Monad m) => RouteT s m () -> Route s m
-matchAll = route (const True) (regex ".*")
+matchAll = Route (const True) (regex ".*")
 
 get,post,put,patch,delete,options,anyRequest :: (WebAppState s, Monad m) => Path -> RouteT s m () -> Route s m
-get        = route $ matchMethod methodGet
-post       = route $ matchMethod methodPost
-put        = route $ matchMethod methodPut
-patch      = route $ matchMethod methodPatch
-delete     = route $ matchMethod methodDelete
-options    = route $ matchMethod methodOptions
-anyRequest = route $ const True
+get        = Route $ matchMethod methodGet
+post       = Route $ matchMethod methodPost
+put        = Route $ matchMethod methodPut
+patch      = Route $ matchMethod methodPatch
+delete     = Route $ matchMethod methodDelete
+options    = Route $ matchMethod methodOptions
+anyRequest = Route $ const True
 
 {-# INLINE matchMethod #-}
 matchMethod :: Method -> (Request -> Bool)
@@ -262,11 +252,11 @@ matchMethod meth r = meth == requestMethod r
 
 -- |Determine if a 'Route' matches a 'Request'.
 routeMatches :: (WebAppState s, Monad m) => Request -> Route s m -> Bool
-routeMatches req (pd, pth, _) = pd req && pathMatches pth (pathInfo req)
+routeMatches req (Route pd pth _) = pd req && pathMatches pth (pathInfo req)
 
 -- |Makes an 'Application' from routes and middleware.
 toApplication :: (WebAppState s, Monad m)
-              => (m RouteResult -> IO RouteResult) -- ^ run your custom monad to IO
+              => (m (Maybe Response) -> IO (Maybe Response)) -- ^ run your monadic type to IO
               -> [Route s m] -- ^ routes
               -> [Middleware] -- ^ middlewares
               -> (Application, IO ()) -- ^ (application, teardown action)
@@ -278,12 +268,12 @@ toApplication runToIO routes mws = (app', readTVarIO st >>= destroyState)
     app' = foldl (flip ($)) app mws
     app req callback = run $ filter (routeMatches req) routes
       where
-        run [] = callback $ responseLBS status404 plainText mempty
-        run ((_, pth, act):rs) = maybe (run rs) return =<< runRoute pth act
-        runRoute pth act = go =<< (try $ runToIO $ evalRouteT act st pth req)
-          where go (Left (e :: SomeException)) = Just <$> (callback $ responseLBS status500 plainText $ BL.pack $ show e)
-                go (Right (Just (s, h, b))) = Just <$> (callback $ responseStream s h $ runStream b)
-                go _ = return Nothing
+        run [] = callback $ responseLBS status404 [] mempty
+        run ((Route _ pth act):rs) = go =<< (try $ runToIO $ fmap f $ runRouteT act st pth (addMutVault req))
+          where go (Left e) = callback $ responseLBS status500 plainText $ BL.pack $ show (e :: SomeException)
+                go (Right jawn) = maybe (run rs) callback jawn
+                f (_, (Next, _)) = Nothing
+                f (_, (_, cng)) = Just $ flattenResponse cng
 
 {- Vault (internal) -}
 
@@ -309,14 +299,13 @@ addMutVault r = r { vault = V.insert mutableVaultKey ioRef (vault r) }
   where ioRef = unsafePerformIO $ newIORef V.empty
         {-# NOINLINE ioRef #-}
 
+withMutVaultM :: (WebAppState s, MonadIO m) => (Vault -> RouteT s m (Maybe a, Vault)) -> RouteT s m (Maybe a)
+withMutVaultM xform = request >>= maybe (return Nothing) f . V.lookup mutableVaultKey . vault
+  where f ior = (liftIO $ readIORef ior) >>= xform >>= uncurry (g ior)
+        g ior ret vlt' = (liftIO $ writeIORef ior vlt') $> ret
+
 lookupMutVault :: (WebAppState s, MonadIO m) => Key a -> RouteT s m (Maybe a)
-lookupMutVault k = mutVault <$> request >>= liftIO . f
-  where f (Just v) = readIORef v >>= return . V.lookup k
-        f Nothing = return Nothing
-        mutVault = V.lookup mutableVaultKey . vault
+lookupMutVault k = withMutVaultM $ \vlt -> return (V.lookup k vlt, vlt)
 
 insertMutVault :: (WebAppState s, MonadIO m) => Key a -> a -> RouteT s m a
-insertMutVault k v = (mutVault <$> request >>= liftIO . f) $> v
-  where f (Just ior) = readIORef ior >>= writeIORef ior . V.insert k v
-        f Nothing = return ()
-        mutVault = V.lookup mutableVaultKey . vault
+insertMutVault k v = (withMutVaultM $ return . (Nothing,) . V.insert k v) $> v

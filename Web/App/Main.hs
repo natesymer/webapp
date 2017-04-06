@@ -39,7 +39,7 @@ import Web.App.RouteT
 import Web.App.State
 import Web.App.HTTP
 
-import Network.Wai (Middleware)
+import Network.Wai (Middleware, Response)
 
 import Data.Maybe
 import Data.Monoid
@@ -87,7 +87,7 @@ webappMainIO = webappMain id
 
 -- |Like 'webappMain' without the CLI extension arguments.
 webappMain' :: (WebAppState s, MonadIO m)
-            => (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
+            => (m (Maybe Response) -> IO (Maybe Response)) -- ^ action to eval a monadic computation in @m@ in @IO@
             -> [Route s m] -- ^ routes
             -> [Middleware] -- ^ middlewares
             -> IO ()
@@ -96,7 +96,7 @@ webappMain' f a m = webappMain f a m Nothing (const $ return ())
 -- | Read commandline arguments and start webapp accordingly. When passing an
 -- additional CLI parser, it is made available under the @util@ subcommand.
 webappMain :: (WebAppState s, MonadIO m)
-           => (m RouteResult -> IO RouteResult) -- ^ action to eval a monadic computation in @m@ in @IO@
+           => (m (Maybe Response) -> IO (Maybe Response)) -- ^ action to eval a monadic computation in @m@ in @IO@
            -> [Route s m] -- ^ routes
            -> [Middleware] -- ^ middlewares
            -> Maybe (Parser a) -- ^ extra CLI parser, parsed after the built-in parser
