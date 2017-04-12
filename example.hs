@@ -38,7 +38,7 @@ app = [
   get "/teststring" streamString,
   get "/captured/:id" withC,
   get (regex "/assets/(.*)") withR,
-  matchAll $ writeBody ("not found!\n" :: String)]
+  matchAll $ (request >>= liftIO . print . pathInfo) >> writeBody ("not found!\n" :: String)]
   where
     root = do
       addHeader "Content-Type" "text/plain"

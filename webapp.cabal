@@ -1,5 +1,5 @@
 Name:                webapp
-Version:             0.4.1
+Version:             0.5.0
 Synopsis:            Haskell web app framework based on WAI & Warp
 Homepage:            https://github.com/natesymer/webapp
 Bug-reports:         https://github.com/natesymer/webapp/issues

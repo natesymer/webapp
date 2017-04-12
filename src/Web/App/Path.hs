@@ -86,8 +86,10 @@ pathMatches :: Path -- ^ path
             -> Bool
 pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPathComps $ delete "/" pin
 pathMatches (LiteralPath lpin) pin = lpin == delete "/" pin
-pathMatches (CapturedPath cpin) pin = pin == sanitizeCapts cpin (delete "/" pin)
-  where sanitizeCapts = zipWith (\c p -> bool c p $ (fst <$> T.uncons c) == Just ':')
+pathMatches (CapturedPath cpin) pin
+  | (length cpin) /= (length (delete "/" pin)) = False
+  | otherwise = all (== True) $ zipWith capEq cpin (delete "/" pin)
+    where capEq c p = bool (c == p) True $ T.isPrefixOf ":" c
 
 -- | Returns path captures by comparing @path@ to @pathComps@.
 pathCaptures :: Path -- ^ path
