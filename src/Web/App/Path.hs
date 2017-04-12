@@ -30,11 +30,11 @@ module Web.App.Path
 )
 where
 
+import qualified Data.Array as A
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
-import qualified Data.ByteString as B
-import Text.Regex.Posix
+import Text.Regex.PCRE
 import Data.List
 import Data.String
 import Data.Char (isAlphaNum)
@@ -67,9 +67,12 @@ literal = LiteralPath . splitPathComps
 captured :: Text -> Path
 captured = CapturedPath . splitPathComps
 
+-- TODO: configure PCRE to use single line mode
 -- |Construct a regex 'Path'.
 regex :: Text -> Path
-regex = RegexPath . makeRegex . T.encodeUtf8
+regex = RegexPath . makeRegexOpts comp exec . T.encodeUtf8
+  where comp = defaultCompOpt
+        exec = defaultExecOpt
 
 {- PATH OPERATIONS -}
 
@@ -91,16 +94,13 @@ pathCaptures :: Path -- ^ path
              -> [Text] -- ^ pathComps
              -> [(Text, Text)]
 pathCaptures (LiteralPath _) _ = []
-pathCaptures (RegexPath r) pin = maybe [] (\(_, x, _, xs) -> f (x:xs)) matched
+pathCaptures (RegexPath r) pin = maybe [(T.pack "fuck", T.pack "you")] (readMatches pstr) (matchOnce r pstr)
   where
-    f = indexedList . map T.decodeUtf8
-    indexedList = zipWith (\a b -> (T.pack $ show a, b)) ([0..] :: [Integer])
-    
-    matched :: Maybe (B.ByteString, B.ByteString, B.ByteString, [B.ByteString])
-    matched = matchM r $ T.encodeUtf8 $ joinPathComps pin
+    pstr = T.encodeUtf8 $ joinPathComps pin
+    readMatches bs arr = [(T.pack $ show i, T.decodeUtf8 $ extract (arr A.! i) bs) | i <- A.range $ A.bounds arr]
 pathCaptures (CapturedPath cap) pin = f [] cap pin
   where
-    f acc [] [] = acc
+    f acc [] [] = reverse acc
     f _ [] _ = []
     f _ _ [] = []
     f acc (c:cs) (p:ps) = g $ T.uncons c
