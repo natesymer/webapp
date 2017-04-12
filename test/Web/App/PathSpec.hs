@@ -52,3 +52,13 @@ spec = do
         joinPathComps []             `shouldBe` "/"
         joinPathComps ["one"]        `shouldBe` "/one"
         joinPathComps ["one", "two"] `shouldBe` "/one/two"
+      
+      it "uses the IsString instance to create either literal or captured paths" $ do
+        let isCap (CapturedPath _) = True
+            isCap _                = False
+            isLit (LiteralPath _ ) = True
+            isLit _                = False
+        isCap "/posts/id/:post" `shouldBe` True
+        isCap "/posts/id/1" `shouldBe` False
+        isLit "/posts/id/:post" `shouldBe` False
+        isLit "/posts/id/1" `shouldBe` True 

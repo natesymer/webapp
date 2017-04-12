@@ -14,7 +14,7 @@ Path matching/parsing functionality
 module Web.App.Path
 (
   -- * Types
-  Path,
+  Path(..),
   -- * Path Constructors
   literal,
   captured,

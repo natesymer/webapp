@@ -117,15 +117,17 @@ webappMain runToIO app mws extraParser extraf = parseArgs extraParser >>= either
           start p c k Nothing Nothing
         exitImmediately ExitSuccess
       exitImmediately ExitSuccess
-    start port cert key out err = runServer ((,) <$> cert <*> key) port pre teardown wai
-      where (wai, teardown) = toApplication runToIO app mws
-            pre = do
+    start port cert key out err = do
+      (wai, teardown) <- toApplication runToIO isTls app mws
+      runServer ((,) <$> cert <*> key) port pre teardown wai
+      where pre = do
               -- drop privileges after binding to a port
               getRealGroupID >>= setEffectiveGroupID
               getRealUserID >>= setEffectiveUserID
               -- redirect I/O
               maybe (return ()) (redirectHandle stdout) out
               maybe (return ()) (redirectHandle stderr) err
+            isTls = isJust cert && isJust key
     redirectHandle hdl pth = do
       exists <- fileExist pth
       when (not exists) $ writeFile pth ""

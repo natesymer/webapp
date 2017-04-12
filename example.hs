@@ -26,6 +26,7 @@ main = webappMainIO app [] (Just parseUtil) handleUtil
 
 app :: [Route Integer IO]
 app = [
+  matchAll $ (request >>= liftIO . print . pathInfo) >> next,
   -- Counter routes
   get "/" root,
   get "/add" add,
@@ -38,7 +39,7 @@ app = [
   get "/teststring" streamString,
   get "/captured/:id" withC,
   get (regex "/assets/(.*)") withR,
-  matchAll $ (request >>= liftIO . print . pathInfo) >> writeBody ("not found!\n" :: String)]
+  matchAll $ writeBody ("not found!\n" :: String)]
   where
     root = do
       addHeader "Content-Type" "text/plain"
@@ -65,7 +66,7 @@ app = [
     streamString = do
       writeBody ("this is a string" :: String)
     withC = do
-      param "id" >>= \(v :: Double) -> writeBody $ show v
+      param "id" >>= \(v :: Int) -> writeBody $ show v
     withR = do
       writeBody ("asset path: " :: String)
       param "1" >>= \v -> writeBody (v :: String)

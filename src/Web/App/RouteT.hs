@@ -9,7 +9,7 @@ Portability : POSIX
 Monad transformer used for defining web app routes.
 -}
 
-{-# LANGUAGE OverloadedStrings, TupleSections #-}
+{-# LANGUAGE OverloadedStrings, TupleSections, BangPatterns #-}
 
 module Web.App.RouteT
 (
@@ -27,10 +27,12 @@ module Web.App.RouteT
   method,
   matchAll,
   -- * Monadic actions
-  halt,
+  abort,
+  finish,
   next,
   writeBody,
   request,
+  isTLS,
   addHeader,
   status,
   headers,
@@ -87,7 +89,8 @@ data Route s m = Route {
 
 data EvalState = Normal -- ^ continue executing as normal
                | Next -- ^ skip to the next route
-               | Halt -- ^ stop evaluation altogether
+               | Finish -- ^ stop evaluation and return what's been accumulated.
+               | Abort -- ^ stop evaluation altogether, setting new HTTP response
   deriving (Eq)
 
 data ResponseChange = SetStatus Status
@@ -103,36 +106,37 @@ flattenResponse = f (status200, [], mempty)
         f (s, hdrs, sm) ((AddBytes bs):rs) = f (s, hdrs, sm <> bs) rs
 
 -- |Monad transformer in which routes are evaluated. Evaluation may be stopped
--- via 'halt', 'next', or 'redirect'.
+-- via 'abort', 'finish', 'next', or 'redirect'.
 newtype RouteT s m a = RouteT {
   runRouteT :: TVar s -- ^ tvar containing state
+            -> Bool -- ^ whether or not a certificate was installed
             -> Path -- ^ path of route
             -> Request -- ^ request being served
             -> m (a, (EvalState, [ResponseChange]))
 }
 
 instance (WebAppState s, Functor m) => Functor (RouteT s m) where
-  fmap f m = RouteT $ \st pth req -> fmap apply $ runRouteT m st pth req
+  fmap f m = RouteT $ \st sec pth req -> fmap apply $ runRouteT m st sec pth req
     where apply (a, c) = (f a, c)
   
 instance (WebAppState s, Monad m) => Applicative (RouteT s m) where
-  pure a = RouteT $ \_ _ _ -> return (a, (Normal, mempty))
+  pure a = RouteT $ \_ _ _ _ -> return (a, (Normal, mempty))
   (<*>) = ap
 
 instance (WebAppState s, Monad m) => Monad (RouteT s m) where
-  fail msg = RouteT $ \_ _ _ -> fail msg
+  fail msg = RouteT $ \_ _ _ _ -> fail msg
   m >>= k = RouteT actionf
     where
-      actionf st pth req = runRouteT m st pth req >>= handleFirst
+      actionf st sec pth req = runRouteT m st sec pth req >>= handleFirst
         where
-          handleFirst (x, (Normal, cng1)) = runRouteT (k x) st pth req >>= handleSecond
+          handleFirst (x, (Normal, cng1)) = runRouteT (k x) st sec pth req >>= handleSecond
             where
               handleSecond (x', (sts, cng2)) = return (x', (sts, cng3))
-                where cng3 = bool (cng1 <> cng2) cng2 $ sts == Halt
+                where cng3 = bool (cng1 <> cng2) cng2 $ sts == Abort
           handleFirst (_, c) = return (undefined, c)
 
 instance (WebAppState s) => MonadTrans (RouteT s) where
-  lift m = RouteT $ \_ _ _ -> m >>= return . (,(Normal, mempty))
+  lift m = RouteT $ \_ _ _ _ -> m >>= return . (,(Normal, mempty))
 
 instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
   liftIO = lift . liftIO
@@ -142,19 +146,23 @@ instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
 -- |INTERNAL A helper to avoid having the RouteT constructor appear everywhere (DRY)
 {-# INLINE context #-}
 context :: (WebAppState s, Monad m) => EvalState -> [ResponseChange] -> RouteT s m ()
-context st hc = RouteT $ \_ _ _ -> return ((), (st, hc))
+context st hc = RouteT $ \_ _ _ _ -> return ((), (st, hc))
 
 -- |INTERNAL Get the state TVar.
 stateTVar :: (WebAppState s, Monad m) => RouteT s m (TVar s)
-stateTVar = RouteT $ \st _ _ -> return (st, (Normal, mempty))
+stateTVar = RouteT $ \st _ _ _ -> return (st, (Normal, mempty))
 
 -- |INTERNAL Get the route's path. This can be different across different evaluations of the same route.
 path :: (WebAppState s, Monad m) => RouteT s m Path
-path = RouteT $ \_ pth _ -> return (pth, (Normal, mempty))
+path = RouteT $ \_ _ pth _ -> return (pth, (Normal, mempty))
 
 -- |Get the 'Request' being served.
 request :: (WebAppState s, Monad m) => RouteT s m Request
-request = RouteT $ \_ _ req -> return (req, (Normal, mempty))
+request = RouteT $ \_ _ _ req -> return (req, (Normal, mempty))
+
+-- |Whether or not the server is using certificates
+isTLS :: (WebAppState s, Monad m) => RouteT s m Bool
+isTLS = RouteT $ \_ sec _ _ -> return (sec, (Normal, mempty))
 
 -- | Get the web app state.
 getState :: (WebAppState s, MonadIO m) => RouteT s m s
@@ -177,8 +185,12 @@ writeBody :: (WebAppState s, Monad m, ToStream w) => w -> RouteT s m ()
 writeBody w = context Normal [AddBytes (stream' w)]
 
 -- |Halt route evaluation and provide a 'Status', '[Header]', and 'Stream'.
-halt :: (WebAppState s, Monad m) => Status -> [Header] -> Stream -> RouteT s m a
-halt s h b = context Halt [SetStatus s, AddBytes b, AddHeaders h] >> undefined
+abort :: (WebAppState s, Monad m) => Status -> [Header] -> Stream -> RouteT s m a
+abort s h b = context Abort [SetStatus s, AddBytes b, AddHeaders h] >> undefined
+
+-- |Halt route evaluation and return the accumulated HTTP response.
+finish :: (WebAppState s, Monad m) => RouteT s m a
+finish = context Finish mempty >> undefined
 
 -- |Halt route evaluation and move onto the next matched route.
 next :: (WebAppState s, Monad m) => RouteT s m a
@@ -188,8 +200,8 @@ next = context Next [] >> undefined
 -- an HTTP status of 302. Route evaluation halts.
 {-# INLINE redirect #-}
 redirect :: (WebAppState s, MonadIO m) => ByteString -> RouteT s m ()
-redirect url = halt status302 [("Location",url)] mempty
-  
+redirect url = status status302 >> addHeader "Location" url >> finish
+ 
 -- |Get the 'Request''s headers.
 headers :: (WebAppState s, Monad m) => RouteT s m [Header]
 headers = requestHeaders <$> request
@@ -200,7 +212,7 @@ header k = lookup (mk k) <$> headers
 
 -- |Read the 'Request''s parameters (in order captures, HTTP body, URI query).
 params :: (WebAppState s, MonadIO m) => RouteT s m Query
-params = maybe (readAll >>= insertMutVault cachedParamsKey) return =<< lookupMutVault cachedParamsKey
+params = readAll -- maybe (readAll >>= insertMutVault cachedParamsKey) return =<< lookupMutVault cachedParamsKey
   where
     readAll = mconcat <$> sequence [cap, bdy, queryString <$> request]
     cap = map toQueryItem <$> (pathCaptures <$> path <*> (pathInfo <$> request))
@@ -253,18 +265,19 @@ method m = Route $ (==) m . requestMethod
 -- |Makes an 'Application' from routes and middleware.
 toApplication :: (WebAppState s, Monad m)
               => (m (Maybe Response) -> IO (Maybe Response)) -- ^ run your monadic type to IO
+              -> Bool -- ^ whether or not the server is using TLS
               -> [Route s m] -- ^ routes
               -> [Middleware] -- ^ middlewares
-              -> (Application, IO ()) -- ^ (application, teardown action)
-toApplication runToIO routes mws = (app', readTVarIO st >>= destroyState)
+              -> IO (Application, IO ()) -- ^ (application, teardown action)
+toApplication runToIO sec routes mws = do
+  st <- newTVarIO =<< initState
+  return (app' st, readTVarIO st >>= destroyState)
   where
-    st = unsafePerformIO (newTVarIO =<< initState)
-    {-# NOINLINE st #-}
     plainText = [("Content-Type", "text/plain; charset=utf-8")]
-    app' = foldl (flip ($)) app mws
-    app req callback = go =<< findSuccessful routeMatches runRoute routes
+    app' st = foldl (flip ($)) (app st) mws
+    app st req callback = go =<< findSuccessful routeMatches runRoute routes
       where
-        runRoute (Route _ pth act) = runToIO $ toResponse <$> runRouteT act st pth (addMutVault req)
+        runRoute (Route _ pth act) = runToIO $ toResponse <$> runRouteT act st sec pth (addMutVault req)
         routeMatches (Route pd pth _) = pd req && pathMatches pth (pathInfo req)
         toResponse (_, (Next, _)) = Nothing
         toResponse (_, (_, cng)) = Just $ flattenResponse cng
