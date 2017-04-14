@@ -33,6 +33,7 @@ module Web.App.RouteT
   writeBody,
   request,
   isTLS,
+  mapRequest,
   addHeader,
   status,
   headers,
@@ -66,10 +67,8 @@ import Network.HTTP.Types.Method
 
 import Data.Bool
 import Data.Monoid
-import Data.Functor
 
-import Data.IORef
-import Data.Vault.Lazy (Vault, Key)
+import Data.Vault.Lazy (Key)
 import qualified Data.Vault.Lazy as V
 import Data.CaseInsensitive (mk)
 
@@ -112,15 +111,15 @@ newtype RouteT s m a = RouteT {
             -> Bool -- ^ whether or not a certificate was installed
             -> Path -- ^ path of route
             -> Request -- ^ request being served
-            -> m (a, (EvalState, [ResponseChange]))
+            -> m (a, Request, (EvalState, [ResponseChange]))
 }
 
 instance (WebAppState s, Functor m) => Functor (RouteT s m) where
   fmap f m = RouteT $ \st sec pth req -> fmap apply $ runRouteT m st sec pth req
-    where apply (a, c) = (f a, c)
+    where apply (a, r, c) = (f a, r, c)
   
 instance (WebAppState s, Monad m) => Applicative (RouteT s m) where
-  pure a = RouteT $ \_ _ _ _ -> return (a, (Normal, mempty))
+  pure a = RouteT $ \_ _ _ req -> return (a, req, (Normal, mempty))
   (<*>) = ap
 
 instance (WebAppState s, Monad m) => Monad (RouteT s m) where
@@ -129,14 +128,14 @@ instance (WebAppState s, Monad m) => Monad (RouteT s m) where
     where
       actionf st sec pth req = runRouteT m st sec pth req >>= handleFirst
         where
-          handleFirst (x, (Normal, cng1)) = runRouteT (k x) st sec pth req >>= handleSecond
+          handleFirst (x, req', (Normal, cng1)) = runRouteT (k x) st sec pth req' >>= handleSecond
             where
-              handleSecond (x', (sts, cng2)) = return (x', (sts, cng3))
+              handleSecond (x', req'', (sts, cng2)) = return (x', req'', (sts, cng3))
                 where cng3 = bool (cng1 <> cng2) cng2 $ sts == Abort
-          handleFirst (_, c) = return (undefined, c)
+          handleFirst (_, req', c) = return (undefined, req', c)
 
 instance (WebAppState s) => MonadTrans (RouteT s) where
-  lift m = RouteT $ \_ _ _ _ -> m >>= return . (,(Normal, mempty))
+  lift m = RouteT $ \_ _ _ req -> m >>= return . (,req,(Normal, mempty))
 
 instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
   liftIO = lift . liftIO
@@ -146,23 +145,27 @@ instance (WebAppState s, MonadIO m) => MonadIO (RouteT s m) where
 -- |INTERNAL A helper to avoid having the RouteT constructor appear everywhere (DRY)
 {-# INLINE context #-}
 context :: (WebAppState s, Monad m) => EvalState -> [ResponseChange] -> RouteT s m ()
-context st hc = RouteT $ \_ _ _ _ -> return ((), (st, hc))
+context st hc = RouteT $ \_ _ _ req -> return ((), req, (st, hc))
 
 -- |INTERNAL Get the state TVar.
 stateTVar :: (WebAppState s, Monad m) => RouteT s m (TVar s)
-stateTVar = RouteT $ \st _ _ _ -> return (st, (Normal, mempty))
+stateTVar = RouteT $ \st _ _ req -> return (st, req, (Normal, mempty))
 
 -- |INTERNAL Get the route's path. This can be different across different evaluations of the same route.
 path :: (WebAppState s, Monad m) => RouteT s m Path
-path = RouteT $ \_ _ pth _ -> return (pth, (Normal, mempty))
+path = RouteT $ \_ _ pth req -> return (pth, req, (Normal, mempty))
 
 -- |Get the 'Request' being served.
 request :: (WebAppState s, Monad m) => RouteT s m Request
-request = RouteT $ \_ _ _ req -> return (req, (Normal, mempty))
+request = RouteT $ \_ _ _ req -> return (req, req, (Normal, mempty))
 
 -- |Whether or not the server is using certificates
 isTLS :: (WebAppState s, Monad m) => RouteT s m Bool
-isTLS = RouteT $ \_ sec _ _ -> return (sec, (Normal, mempty))
+isTLS = RouteT $ \_ sec _ req -> return (sec, req, (Normal, mempty))
+
+-- |Perform a transform on the incoming request.
+mapRequest :: (WebAppState s, Monad m) => (Request -> Request) -> RouteT s m ()
+mapRequest f = RouteT $ \_ _ _ req -> return ((), f req, (Normal, mempty))
 
 -- | Get the web app state.
 getState :: (WebAppState s, MonadIO m) => RouteT s m s
@@ -212,7 +215,7 @@ header k = lookup (mk k) <$> headers
 
 -- |Read the 'Request''s parameters (in order captures, HTTP body, URI query).
 params :: (WebAppState s, MonadIO m) => RouteT s m Query
-params = readAll -- maybe (readAll >>= insertMutVault cachedParamsKey) return =<< lookupMutVault cachedParamsKey
+params = maybe (readAll >>= cacheParams) return =<< cachedParams
   where
     readAll = mconcat <$> sequence [cap, bdy, queryString <$> request]
     cap = map toQueryItem <$> (pathCaptures <$> path <*> (pathInfo <$> request))
@@ -232,7 +235,7 @@ maybeParam k = f . lookup k <$> params where f x = join x >>= maybeRead
 
 -- |Read the request body as a lazy 'ByteString'.
 body :: (WebAppState s, MonadIO m) => RouteT s m BL.ByteString
-body = maybe (request >>= liftIO . lazyRead . requestBody >>= insertMutVault cachedBodyKey) return =<< lookupMutVault cachedBodyKey
+body = maybe (request >>= liftIO . lazyRead . requestBody >>= cacheBody) return =<< cachedBody
   where lazyRead rd = unsafeInterleaveIO $ rd >>= f
           where f c = bool (BL.Chunk c <$> lazyRead rd) (return BL.Empty) $ B.null c
 
@@ -277,10 +280,10 @@ toApplication runToIO sec routes mws = do
     app' st = foldl (flip ($)) (app st) mws
     app st req callback = go =<< findSuccessful routeMatches runRoute routes
       where
-        runRoute (Route _ pth act) = runToIO $ toResponse <$> runRouteT act st sec pth (addMutVault req)
+        runRoute (Route _ pth act) = runToIO $ toResponse <$> runRouteT act st sec pth req
         routeMatches (Route pd pth _) = pd req && pathMatches pth (pathInfo req)
-        toResponse (_, (Next, _)) = Nothing
-        toResponse (_, (_, cng)) = Just $ flattenResponse cng
+        toResponse (_, _, (Next, _)) = Nothing
+        toResponse (_, _, (_, cng)) = Just $ flattenResponse cng
         go Nothing = callback $ responseLBS status404 [] mempty
         go (Just (Left e)) = callback $ responseLBS status500 plainText $ BL.pack $ show (e :: SomeException)
         go (Just (Right jawn)) = callback jawn
@@ -298,7 +301,7 @@ findSuccessful p f (x:xs) = if p x then (try $ f x) >>= go else findSuccessful p
 {- Vault (internal) -}
 
 -- Used to implement framework functionality    
-          
+
 cachedBodyKey :: Key BL.ByteString
 cachedBodyKey = unsafePerformIO V.newKey
 {-# NOINLINE cachedBodyKey #-}
@@ -306,27 +309,21 @@ cachedBodyKey = unsafePerformIO V.newKey
 cachedParamsKey :: Key Query
 cachedParamsKey = unsafePerformIO V.newKey
 {-# NOINLINE cachedParamsKey #-}
-              
--- Used to implement mutable Vault.
-              
-mutableVaultKey :: Key (IORef Vault)
-mutableVaultKey = unsafePerformIO V.newKey
-{-# NOINLINE mutableVaultKey #-}
 
--- | Adds a "mutable" 'Vault' (@'IORef' 'Vault'@) to a 'Request'.
-addMutVault :: Request -> Request
-addMutVault r = r { vault = V.insert mutableVaultKey ioRef (vault r) }
-  where ioRef = unsafePerformIO $ newIORef V.empty
-        {-# NOINLINE ioRef #-}
+setVault :: (WebAppState s, Monad m) => Key a -> a -> RouteT s m a
+setVault k v = mapRequest (\r -> r { vault = V.insert k v (vault r) } ) >> return v
+  
+getVault :: (WebAppState s, Monad m) => Key a -> RouteT s m (Maybe a)
+getVault k = V.lookup k . vault <$> request
 
--- | Exposes the "mutable" 'Vault' for modification/access. DRY.
-withMutVaultM :: (WebAppState s, MonadIO m) => (Vault -> RouteT s m (Maybe a, Vault)) -> RouteT s m (Maybe a)
-withMutVaultM xform = request >>= maybe (return Nothing) f . V.lookup mutableVaultKey . vault
-  where f ior = (liftIO $ readIORef ior) >>= xform >>= uncurry (g ior)
-        g ior ret vlt' = (liftIO $ writeIORef ior vlt') $> ret
-
-lookupMutVault :: (WebAppState s, MonadIO m) => Key a -> RouteT s m (Maybe a)
-lookupMutVault k = withMutVaultM $ \vlt -> return (V.lookup k vlt, vlt)
-
-insertMutVault :: (WebAppState s, MonadIO m) => Key a -> a -> RouteT s m a
-insertMutVault k v = (withMutVaultM $ return . (Nothing,) . V.insert k v) $> v
+cacheBody :: (WebAppState s, Monad m) => BL.ByteString -> RouteT s m BL.ByteString
+cacheBody = setVault cachedBodyKey
+  
+cachedBody :: (WebAppState s, Monad m) => RouteT s m (Maybe BL.ByteString)
+cachedBody = getVault cachedBodyKey
+  
+cacheParams :: (WebAppState s, Monad m) => Query -> RouteT s m Query
+cacheParams = setVault cachedParamsKey
+             
+cachedParams :: (WebAppState s, Monad m) => RouteT s m (Maybe Query)
+cachedParams = getVault cachedParamsKey
