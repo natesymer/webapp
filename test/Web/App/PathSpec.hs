@@ -18,6 +18,10 @@ spec = do
         pathMatches "/asdf"  [] `shouldBe` False
         pathMatches "/:asdf" [] `shouldBe` False
         
+      it "matches regardless of trailing slashes" $ do
+        pathMatches "/asdf"  ["asdf"] `shouldBe` True
+        pathMatches "/asdf/" ["asdf"] `shouldBe` True
+        
       it "matches literal paths" $ do
         pathMatches "/one/two"       ["one", "two"] `shouldBe` True
         pathMatches "/one/two/three" ["one", "two"] `shouldBe` False

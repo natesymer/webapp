@@ -84,12 +84,17 @@ isRoot = flip pathMatches (splitPathComps "/")
 pathMatches :: Path -- ^ path
             -> [Text] -- ^ pathComps
             -> Bool
-pathMatches (RegexPath ex) pin = matchTest ex $ T.encodeUtf8 $ joinPathComps $ delete "/" pin
-pathMatches (LiteralPath lpin) pin = lpin == delete "/" pin
+pathMatches (RegexPath ex)      pin = matchTest ex $ T.encodeUtf8 $ joinPathComps $ filter notSlashOrNull pin
+pathMatches (LiteralPath lpin)  pin = lpin == filter notSlashOrNull pin
 pathMatches (CapturedPath cpin) pin
-  | (length cpin) /= (length (delete "/" pin)) = False
-  | otherwise = all (== True) $ zipWith capEq cpin (delete "/" pin)
+  | length cpin /= length pin' = False
+  | otherwise = all (== True) $ zipWith capEq cpin pin'
     where capEq c p = bool (c == p) True $ T.isPrefixOf ":" c
+          pin' = filter notSlashOrNull pin
+          {-# NOINLINE pin' #-}
+          
+notSlashOrNull :: String -> Bool
+notSlashOrNull v = v /= "/" && (not $ T.null v)
 
 -- | Returns path captures by comparing @path@ to @pathComps@.
 pathCaptures :: Path -- ^ path
